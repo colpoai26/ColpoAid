@@ -657,6 +657,9 @@ function patientHistoryHTML(patient){
           ${s.findings?.acetoblanco&&s.findings.acetoblanco!=='Ausente'?`<span class="badge b-warn">Acetoblanco ${s.findings.acetoblanco}</span>`:''}
           ${s.findings?.vasos?`<span class="badge b-danger">Vasos atípicos</span>`:''}
           ${s.images?.length?`<span class="badge b-teal">${s.images.length} img</span>`:''}
+          ${s.biopsias?.length?`<span class="badge b-blue">🔬 ${s.biopsias.length} biopsia${s.biopsias.length>1?'s':''}</span>`:''}
+          ${s.biopsias?.some(b=>b.resultado)?`<span class="badge b-ok">AP ✓</span>`:''}
+          ${s.correlacion?`<span class="badge b-${s.correlacion.includes('Concordante')?'ok':'warn'}">${s.correlacion.includes('Concordante')?'Concordante':'Discordante'}</span>`:''}
         </div>
         ${s.aiSummary?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic">🤖 ${s.aiSummary}</div>`:''}
         ${s.notas&&!s.aiSummary?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.notas}</div>`:''}
@@ -686,7 +689,8 @@ function openStudyModal(id=null){
   studyStep=0;
   studyFormData=edit?JSON.parse(JSON.stringify(edit)):{
     patientId:selectedPatient.id,date:new Date().toISOString().slice(0,10),
-    images:[],annotations:[],clockMarks:[],aiAnalyzed:false,aiSummary:'',
+    images:[],annotations:[],clockMarks:[],biopsias:[],correlacion:'',
+    aiAnalyzed:false,aiSummary:'',
     findings:{union:'',acetoblanco:'',mosaico:'',punteado:false,vasos:false,yodo:'',cervicitis:false,leucoplasia:false},
     diagnostico:'',conducta:'',notas:'',
   };
@@ -702,8 +706,8 @@ function renderStudyModal(editId){
       <div style="font-size:12px;color:var(--text3);margin-top:2px">Paciente: ${selectedPatient.nombre}</div></div>
       <button onclick="closeStudyModal()" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:18px">✕</button>
     </div>
-    <div style="padding:16px 24px 0;display:flex;align-items:center;gap:0">
-      ${['Datos','Imágenes + IA','Hallazgos','Diagnóstico'].map((s,i)=>`
+    <div style="padding:16px 24px 0;display:flex;align-items:center;gap:0;flex-wrap:wrap">
+      ${['Datos','Imágenes + IA','Hallazgos','Diagnóstico','Biopsias'].map((s,i)=>`
         <div style="display:flex;align-items:center">
           <div style="display:flex;align-items:center;gap:7px;cursor:pointer" onclick="goStudyStep(${i})">
             <div class="step-num" style="border-color:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'var(--border2)'};background:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'transparent'};color:${i<=studyStep?'#fff':'var(--text3)'}">
@@ -711,7 +715,7 @@ function renderStudyModal(editId){
             </div>
             <span style="font-size:12px;font-weight:500;color:${i===studyStep?'var(--blue)':'var(--text3)'}">${s}</span>
           </div>
-          ${i<3?`<div style="width:24px;height:1px;background:var(--border2);margin:0 8px"></div>`:''}
+          ${i<4?`<div style="width:20px;height:1px;background:var(--border2);margin:0 6px"></div>`:''}
         </div>`).join('')}
     </div>
     <div style="padding:18px 24px 24px" id="study-step-content">
@@ -808,7 +812,116 @@ function renderStudyStep(editId){
       <textarea id="sf-notas" rows="4" placeholder="Descripción de hallazgos...">${studyFormData.notas||''}</textarea></div>
     ${stepNav(editId)}`;
   }
+
+  if(studyStep===4){
+    const biopsias=studyFormData.biopsias||[];
+    const AP_OPTIONS=['Negativo / Normal','CIN I (NIC I)','CIN II (NIC II)','CIN III (NIC III)','Carcinoma in situ','Carcinoma invasor','Adenocarcinoma','Cambios por HPV','Cervicitis crónica','Metaplasia escamosa','Endocérvix normal','Otro'];
+    const ZONA_OPTIONS=['Ectocérvix','Endocérvix','Unión escamocolumnar','Legrado endocervical'];
+    return`
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div style="font-weight:600;font-size:14px">Biopsias del estudio</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">Registrá cada biopsia tomada con su resultado anatomopatológico</div>
+        </div>
+        <button class="btn btn-p btn-sm" onclick="addBiopsia()">＋ Agregar biopsia</button>
+      </div>
+
+      ${biopsias.length===0?`
+      <div style="background:var(--bg3);border-radius:10px;padding:30px;text-align:center;border:2px dashed var(--border2)">
+        <div style="font-size:32px;margin-bottom:10px">🔬</div>
+        <div style="font-weight:600;color:var(--text2);margin-bottom:4px">Sin biopsias registradas</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Si no se tomó biopsia, podés guardar el estudio directamente.</div>
+        <button class="btn btn-p btn-sm" onclick="addBiopsia()">＋ Agregar primera biopsia</button>
+      </div>`:`
+      <div style="display:flex;flex-direction:column;gap:12px" id="biopsias-list">
+        ${biopsias.map((b,i)=>renderBiopsiaRow(b,i)).join('')}
+      </div>`}
+
+      ${biopsias.length>0?`
+      <div style="background:var(--bg3);border-radius:10px;padding:14px;margin-top:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">📊 Resumen de biopsias</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${biopsias.map((b,i)=>`<div style="background:var(--surface);border-radius:8px;padding:6px 10px;font-size:12px">
+            <span style="color:var(--text3)">Bx${i+1}</span>
+            ${b.hora?`<span style="color:var(--blue);margin:0 4px">${b.hora}hs</span>`:''}
+            <span style="color:var(--text);font-weight:600">${b.resultado||'Pendiente'}</span>
+            ${b.fechaResultado?`<span style="color:var(--text3);font-size:11px;margin-left:4px">(${b.fechaResultado})</span>`:''}
+          </div>`).join('')}
+        </div>
+        ${biopsias.some(b=>b.resultado&&studyFormData.diagnostico)?`
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">Correlación colposcopía / histología</div>
+          <div style="display:flex;flex-wrap:wrap;gap:7px">
+            ${['Concordante','Discordante — histología más grave','Discordante — histología más leve','Pendiente de resultado'].map(o=>`
+            <button type="button" class="radio-opt${(studyFormData.correlacion||'')=== o?' on':''}" onclick="setStudyField('correlacion','${o}')">${o}</button>`).join('')}
+          </div>
+        </div>`:''}
+      </div>`:''}
+    </div>
+    ${stepNav(editId)}`;
+  }
   return'';
+}
+
+function renderBiopsiaRow(b,i){
+  const AP_OPTIONS=['Negativo / Normal','CIN I (NIC I)','CIN II (NIC II)','CIN III (NIC III)','Carcinoma in situ','Carcinoma invasor','Adenocarcinoma','Cambios por HPV','Cervicitis crónica','Metaplasia escamosa','Endocérvix normal','Otro'];
+  const ZONA_OPTIONS=['Ectocérvix','Endocérvix','Unión escamocolumnar','Legrado endocervical'];
+  return`<div style="background:var(--bg3);border-radius:10px;padding:14px;border:1px solid var(--border)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-weight:600;font-size:13px;color:var(--teal)">🔬 Biopsia ${i+1}</div>
+      <button onclick="removeBiopsia(${i})" style="background:rgba(232,85,85,.1);border:1px solid rgba(232,85,85,.2);color:var(--danger);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px">✕ Eliminar</button>
+    </div>
+    <div class="grid3" style="gap:10px;margin-bottom:10px">
+      <div><label class="lbl">Hora del reloj</label>
+        <select onchange="updateBiopsia(${i},'hora',this.value)" style="width:100%">
+          <option value="">— Sin ubicación —</option>
+          ${Array.from({length:12},(_,j)=>`<option value="${j+1}"${b.hora==j+1?' selected':''}>${j+1}hs</option>`).join('')}
+        </select>
+      </div>
+      <div><label class="lbl">Zona anatómica</label>
+        <select onchange="updateBiopsia(${i},'zona',this.value)" style="width:100%">
+          <option value="">— Seleccionar —</option>
+          ${['Ectocérvix','Endocérvix','Unión escamocolumnar','Legrado endocervical'].map(o=>`<option${b.zona===o?' selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      <div><label class="lbl">Fecha de biopsia</label>
+        <input type="date" value="${b.fechaBiopsia||''}" onchange="updateBiopsia(${i},'fechaBiopsia',this.value)"/>
+      </div>
+    </div>
+    <div class="grid2" style="gap:10px">
+      <div><label class="lbl">Resultado anatomopatológico</label>
+        <select onchange="updateBiopsia(${i},'resultado',this.value)" style="width:100%">
+          <option value="">— Pendiente de resultado —</option>
+          ${['Negativo / Normal','CIN I (NIC I)','CIN II (NIC II)','CIN III (NIC III)','Carcinoma in situ','Carcinoma invasor','Adenocarcinoma','Cambios por HPV','Cervicitis crónica','Metaplasia escamosa','Endocérvix normal','Otro'].map(o=>`<option${b.resultado===o?' selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      <div><label class="lbl">Fecha del resultado AP</label>
+        <input type="date" value="${b.fechaResultado||''}" onchange="updateBiopsia(${i},'fechaResultado',this.value)"/>
+      </div>
+    </div>
+    <div style="margin-top:10px"><label class="lbl">Observaciones</label>
+      <input type="text" value="${b.obs||''}" placeholder="Notas adicionales sobre esta biopsia..." onchange="updateBiopsia(${i},'obs',this.value)"/>
+    </div>
+  </div>`;
+}
+
+function addBiopsia(){
+  if(!studyFormData.biopsias)studyFormData.biopsias=[];
+  studyFormData.biopsias.push({hora:'',zona:'',fechaBiopsia:'',resultado:'',fechaResultado:'',obs:''});
+  document.getElementById('study-step-content').innerHTML=renderStudyStep(null);
+  bindStudyStep();
+}
+
+function removeBiopsia(i){
+  studyFormData.biopsias.splice(i,1);
+  document.getElementById('study-step-content').innerHTML=renderStudyStep(null);
+  bindStudyStep();
+}
+
+function updateBiopsia(i,key,val){
+  if(!studyFormData.biopsias)studyFormData.biopsias=[];
+  studyFormData.biopsias[i][key]=val;
 }
 
 function renderAiButton(){
@@ -1009,12 +1122,12 @@ async function runAiAnalysis(){
 function stepNav(editId){
   return`<div style="display:flex;gap:10px;justify-content:space-between;margin-top:20px">
     <button class="btn btn-g" onclick="${studyStep===0?'closeStudyModal()':'prevStudyStep()'}">${studyStep===0?'Cancelar':'← Anterior'}</button>
-    ${studyStep<3?`<button class="btn btn-p" onclick="nextStudyStep()">Siguiente →</button>`:
+    ${studyStep<4?`<button class="btn btn-p" onclick="nextStudyStep()">Siguiente →</button>`:
     `<button class="btn btn-p" onclick="saveStudy('${editId||''}')">✓ Guardar estudio</button>`}
   </div>`;
 }
 function goStudyStep(i){captureStepData();studyStep=i;document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
-function nextStudyStep(){captureStepData();studyStep=Math.min(3,studyStep+1);document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
+function nextStudyStep(){captureStepData();studyStep=Math.min(4,studyStep+1);document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
 function prevStudyStep(){captureStepData();studyStep=Math.max(0,studyStep-1);document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
 function captureStepData(){
   if(studyStep===0){const d=document.getElementById('sf-date');if(d)studyFormData.date=d.value;const m=document.getElementById('sf-motivo');if(m)studyFormData.motivo=m.value;}
@@ -1289,6 +1402,25 @@ function generatePDF(studyId){
     doc.text(s.diagnostico||'Sin diagnóstico',M+5,y+13);
     if(s.conducta){doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(0,212,184);doc.text('Conducta: '+s.conducta,M+5,y+19);}
     y+=28;
+    if(s.biopsias?.length){
+      if(y>220){doc.addPage();y=20;}
+      doc.setTextColor(79,142,247);doc.setFontSize(10);doc.setFont('helvetica','bold');
+      doc.text('BIOPSIAS Y ANATOMÍA PATOLÓGICA',M,y);
+      doc.setDrawColor(79,142,247);doc.setLineWidth(.3);doc.line(M,y+2,W-M,y+2);y+=8;
+      doc.autoTable({startY:y,
+        head:[['Bx','Hora','Zona','Fecha Bx','Resultado AP','Fecha AP']],
+        body:s.biopsias.map((b,i)=>[`Bx${i+1}`,b.hora?`${b.hora}hs`:'—',b.zona||'—',b.fechaBiopsia||'—',b.resultado||'Pendiente',b.fechaResultado||'—']),
+        theme:'plain',
+        headStyles:{fontSize:8,fontStyle:'bold',textColor:[80,94,122],fillColor:[26,34,50]},
+        styles:{fontSize:9,cellPadding:3,textColor:[221,228,240],fillColor:[12,16,24]},
+        margin:{left:M,right:M},tableLineColor:[26,34,50],tableLineWidth:.1});
+      y=doc.lastAutoTable.finalY+6;
+      if(s.correlacion){
+        const corColor=s.correlacion.includes('Concordante')?[34,201,122]:[245,166,35];
+        doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...corColor);
+        doc.text(`Correlación colposcopía/histología: ${s.correlacion}`,M,y);y+=10;
+      }
+    }
     if(s.notas){
       if(y>230){doc.addPage();y=20;}
       doc.setTextColor(79,142,247);doc.setFontSize(10);doc.setFont('helvetica','bold');
