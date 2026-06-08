@@ -97,6 +97,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 
 @media(max-width:768px){.sidebar{width:60px}.sidebar .lbl-hide{display:none}.main{margin-left:60px;padding:16px}.grid4{grid-template-columns:1fr 1fr}.grid3{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="toast-wrap" id="toasts"></div>
@@ -104,21 +105,59 @@ tr:hover td{background:rgba(255,255,255,.02)}
 
 <script>
 // ═══════════════════════════════════════
+// SUPABASE - Conexión a la nube
+// ═══════════════════════════════════════
+const SUPABASE_URL='https://fqepckbcykgpughkenmd.supabase.co';
+const SUPABASE_KEY='sb_publishable_Y2RkM7H_WcvxWuo_vy_Ayw_XlOxnPqg';
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let cloudUser=null;
+// ═══════════════════════════════════════
 // DATABASE
 // ═══════════════════════════════════════
 const db={
   get:(k,d=[])=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},
   set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)),
-  patients:()=>db.get('cai_p',[]),
-  savePatients:v=>db.set('cai_p',v),
-  studies:()=>db.get('cai_s',[]),
-  saveStudies:v=>db.set('cai_s',v),
+  _key:(base)=>cloudUser?`${base}_${cloudUser.id}`:base,
+  patients:()=>db.get(db._key('cai_p'),[]),
+  savePatients:v=>{db.set(db._key('cai_p'),v);db.syncPatients(v);},
+  studies:()=>db.get(db._key('cai_s'),[]),
+  saveStudies:v=>{db.set(db._key('cai_s'),v);db.syncStudies(v);},
   doctor:()=>db.get('cai_d',null),
   saveDoctor:v=>db.set('cai_d',v),
   clearDoctor:()=>localStorage.removeItem('cai_d'),
   studiesOf:id=>db.studies().filter(s=>s.patientId===id),
   getApiKey:()=>localStorage.getItem('cai_apikey')||'',
   saveApiKey:v=>localStorage.setItem('cai_apikey',v),
+  // ── Sincronización con la nube (Supabase) ──
+  syncPatients:async(list)=>{
+    if(!cloudUser)return;
+    try{
+      for(const p of list){
+        await sb.from('pacientes').upsert({
+          id:p.id.length>20?p.id:undefined,
+          user_id:cloudUser.id,nombre:p.nombre,codigo:p.codigo,
+          edad:p.edad?parseInt(p.edad):null,fecha:p.fecha||null,
+          pap:p.pap,hpv:p.hpv,motivo:p.motivo,antecedentes:p.antecedentes
+        },{onConflict:'id'}).select();
+      }
+    }catch(e){console.log('Sync pacientes:',e.message);}
+  },
+  syncStudies:async(list)=>{
+    if(!cloudUser)return;
+    try{
+      for(const s of list){
+        await sb.from('estudios').upsert({
+          id:s.id.length>20?s.id:undefined,
+          user_id:cloudUser.id,paciente_id:null,
+          fecha:s.date||null,motivo:s.motivo,
+          hallazgos:s.findings,clock_marks:s.clockMarks,
+          diagnostico:s.diagnostico,conducta:s.conducta,notas:s.notas,
+          correlacion:s.correlacion,ai_analyzed:s.aiAnalyzed||false,
+          ai_summary:s.aiSummary,ai_confianza:s.aiConfianza,ai_zonas:s.aiZonas
+        },{onConflict:'id'}).select();
+      }
+    }catch(e){console.log('Sync estudios:',e.message);}
+  },
 };
 
 // ═══════════════════════════════════════
@@ -270,32 +309,74 @@ function loginHTML(){
       </div>
     </div>
     <div class="card" style="border-color:var(--border2)">
-      <div style="font-family:Lora,serif;font-size:20px;margin-bottom:4px">Iniciar sesión</div>
-      <p style="font-size:12px;color:var(--text3);margin-bottom:22px">Acceso exclusivo para médicos</p>
+      <div style="display:flex;gap:8px;margin-bottom:18px;border-bottom:1px solid var(--border)">
+        <button id="tab-login" onclick="switchAuthTab('login')" style="flex:1;background:none;border:none;border-bottom:2px solid var(--blue);color:var(--blue);font-family:inherit;font-size:14px;font-weight:600;padding:10px;cursor:pointer">Iniciar sesión</button>
+        <button id="tab-register" onclick="switchAuthTab('register')" style="flex:1;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-family:inherit;font-size:14px;font-weight:600;padding:10px;cursor:pointer">Crear cuenta</button>
+      </div>
+      <p id="auth-subtitle" style="font-size:12px;color:var(--text3);margin-bottom:18px">Ingresá con tu cuenta de médico</p>
       <div id="login-err" style="display:none;background:rgba(232,85,85,.1);border:1px solid rgba(232,85,85,.2);color:var(--danger);border-radius:8px;padding:9px 13px;font-size:13px;margin-bottom:14px"></div>
+      <div id="register-name-field" class="fg" style="display:none"><label class="lbl">Nombre completo</label>
+        <input id="l-name" type="text" placeholder="Dr/a. Ana García"/></div>
       <div class="fg"><label class="lbl">Email profesional</label>
-        <input id="l-email" type="email" value="dr.garcia@colpoai.com" placeholder="dr@hospital.com"/></div>
+        <input id="l-email" type="email" placeholder="dr@hospital.com"/></div>
       <div class="fg"><label class="lbl">Contraseña</label>
-        <input id="l-pass" type="password" value="demo123" placeholder="••••••••"/></div>
-      <button class="btn btn-p" id="btn-login" style="width:100%;justify-content:center;padding:11px">Ingresar al sistema</button>
-      <p style="text-align:center;margin-top:14px;font-size:11px;color:var(--text3)">Demo: <span style="color:var(--blue)">dr.garcia@colpoai.com</span> / <span style="color:var(--blue)">demo123</span></p>
+        <input id="l-pass" type="password" placeholder="Mínimo 6 caracteres"/></div>
+      <button class="btn btn-p" id="btn-login" style="width:100%;justify-content:center;padding:11px">Ingresar</button>
+      <p style="text-align:center;margin-top:14px;font-size:11px;color:var(--text3)">Tus datos se guardan de forma segura en la nube</p>
     </div>
   </div></div>`;
 }
+let authMode='login';
+function switchAuthTab(mode){
+  authMode=mode;
+  document.getElementById('tab-login').style.borderBottomColor=mode==='login'?'var(--blue)':'transparent';
+  document.getElementById('tab-login').style.color=mode==='login'?'var(--blue)':'var(--text3)';
+  document.getElementById('tab-register').style.borderBottomColor=mode==='register'?'var(--blue)':'transparent';
+  document.getElementById('tab-register').style.color=mode==='register'?'var(--blue)':'var(--text3)';
+  document.getElementById('register-name-field').style.display=mode==='register'?'block':'none';
+  document.getElementById('btn-login').textContent=mode==='register'?'Crear cuenta':'Ingresar';
+  document.getElementById('auth-subtitle').textContent=mode==='register'?'Registrate como médico para empezar':'Ingresá con tu cuenta de médico';
+  document.getElementById('login-err').style.display='none';
+}
 function bindLogin(){
-  document.getElementById('btn-login').onclick=()=>{
-    const email=document.getElementById('l-email').value,pass=document.getElementById('l-pass').value;
+  document.getElementById('btn-login').onclick=async()=>{
+    const email=document.getElementById('l-email').value.trim();
+    const pass=document.getElementById('l-pass').value;
     const err=document.getElementById('login-err');
+    err.style.display='none';
     if(!email||!pass){err.style.display='block';err.textContent='Completá todos los campos.';return;}
-    if(pass.length<6){err.style.display='block';err.textContent='Contraseña inválida.';return;}
+    if(pass.length<6){err.style.display='block';err.textContent='La contraseña debe tener al menos 6 caracteres.';return;}
     const btn=document.getElementById('btn-login');
-    btn.innerHTML='<span class="spinner"></span> Ingresando...';btn.disabled=true;
-    setTimeout(()=>{
-      const parts=email.split('@')[0].split('.');
-      const name=parts.map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
-      currentDoctor={name:`Dr/a. ${name}`,email};
-      db.saveDoctor(currentDoctor);render();
-    },800);
+    btn.innerHTML='<span class="spinner"></span> Procesando...';btn.disabled=true;
+    try{
+      if(authMode==='register'){
+        const name=document.getElementById('l-name').value.trim()||email.split('@')[0];
+        const {data,error}=await sb.auth.signUp({email,password:pass,options:{data:{name}}});
+        if(error)throw error;
+        if(data.user&&!data.session){
+          err.style.display='block';err.style.color='var(--ok)';err.style.background='rgba(34,201,122,.1)';err.style.borderColor='rgba(34,201,122,.2)';
+          err.textContent='✓ Cuenta creada. Revisá tu email para confirmar y luego iniciá sesión.';
+          btn.innerHTML='Crear cuenta';btn.disabled=false;
+          return;
+        }
+        cloudUser=data.user;
+        currentDoctor={name,email};db.saveDoctor(currentDoctor);render();
+      }else{
+        const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
+        if(error)throw error;
+        cloudUser=data.user;
+        const name=data.user.user_metadata?.name||email.split('@')[0];
+        currentDoctor={name,email};db.saveDoctor(currentDoctor);render();
+      }
+    }catch(e){
+      err.style.display='block';
+      let msg=e.message||'Error';
+      if(msg.includes('Invalid login'))msg='Email o contraseña incorrectos.';
+      if(msg.includes('already registered'))msg='Este email ya está registrado. Iniciá sesión.';
+      if(msg.includes('Email not confirmed'))msg='Confirmá tu email antes de ingresar.';
+      err.textContent=msg;
+      btn.innerHTML=authMode==='register'?'Crear cuenta':'Ingresar';btn.disabled=false;
+    }
   };
   document.getElementById('l-pass').onkeydown=e=>{if(e.key==='Enter')document.getElementById('btn-login').click()};
 }
@@ -325,7 +406,7 @@ function sidebarHTML(){
     <button class="nav-item" onclick="logout()">🚪 <span class="lbl-hide">Salir</span></button>
   </div></aside>`;
 }
-function logout(){db.clearDoctor();currentDoctor=null;currentPage='dashboard';selectedPatient=null;render();}
+async function logout(){await sb.auth.signOut();cloudUser=null;db.clearDoctor();currentDoctor=null;currentPage='dashboard';selectedPatient=null;render();}
 
 // ═══════════════════════════════════════
 // SETTINGS PAGE
@@ -1454,7 +1535,19 @@ function generatePDF(studyId){
 // ═══════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════
-window.onload=()=>{currentDoctor=db.doctor();render();};
+window.onload=async()=>{
+  // Verificar si hay sesión activa en la nube
+  try{
+    const {data}=await sb.auth.getSession();
+    if(data.session){
+      cloudUser=data.session.user;
+      const name=cloudUser.user_metadata?.name||cloudUser.email.split('@')[0];
+      currentDoctor={name,email:cloudUser.email};
+      db.saveDoctor(currentDoctor);
+    }
+  }catch(e){console.log('No session');}
+  render();
+};
 </script>
 </body>
 </html>
