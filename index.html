@@ -168,6 +168,39 @@ const db={
     if(!cloudUser||id.length<20)return;
     try{await sb.from('estudios').delete().eq('id',id);}catch(e){console.log('Del estudio:',e.message);}
   },
+  // Cargar datos desde la nube y fusionar con lo local
+  loadFromCloud:async()=>{
+    if(!cloudUser)return;
+    try{
+      const {data:pacientes}=await sb.from('pacientes').select('*').eq('user_id',cloudUser.id);
+      const {data:estudios}=await sb.from('estudios').select('*').eq('user_id',cloudUser.id);
+      if(pacientes){
+        const mapped=pacientes.map(p=>({
+          id:p.id,nombre:p.nombre,codigo:p.codigo||'',edad:p.edad||'',
+          fecha:p.fecha||'',pap:p.pap||'',hpv:p.hpv||'',motivo:p.motivo||'',
+          antecedentes:p.antecedentes||'',createdAt:p.created_at
+        }));
+        db.set(db._key('cai_p'),mapped);
+      }
+      if(estudios){
+        const mapped=estudios.map(s=>({
+          id:s.id,patientId:s.paciente_id,date:s.fecha||'',motivo:s.motivo||'',
+          findings:s.hallazgos||{},clockMarks:s.clock_marks||[],
+          diagnostico:s.diagnostico||'',conducta:s.conducta||'',notas:s.notas||'',
+          correlacion:s.correlacion||'',aiAnalyzed:s.ai_analyzed||false,
+          aiSummary:s.ai_summary||'',aiConfianza:s.ai_confianza||'',aiZonas:s.ai_zonas||[],
+          images:[],annotations:[],biopsias:[],createdAt:s.created_at
+        }));
+        // Conservar imágenes/biopsias locales si existen para ese estudio
+        const local=db.studies();
+        mapped.forEach(m=>{
+          const loc=local.find(l=>l.id===m.id);
+          if(loc){m.images=loc.images||[];m.annotations=loc.annotations||[];m.biopsias=loc.biopsias||[];}
+        });
+        db.set(db._key('cai_s'),mapped);
+      }
+    }catch(e){console.log('Load from cloud:',e.message);}
+  },
 };
 
 // ═══════════════════════════════════════
@@ -370,13 +403,15 @@ function bindLogin(){
           return;
         }
         cloudUser=data.user;
-        currentDoctor={name,email};db.saveDoctor(currentDoctor);render();
+        currentDoctor={name,email};db.saveDoctor(currentDoctor);
+        await db.loadFromCloud();render();
       }else{
         const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
         if(error)throw error;
         cloudUser=data.user;
         const name=data.user.user_metadata?.name||email.split('@')[0];
-        currentDoctor={name,email};db.saveDoctor(currentDoctor);render();
+        currentDoctor={name,email};db.saveDoctor(currentDoctor);
+        await db.loadFromCloud();render();
       }
     }catch(e){
       err.style.display='block';
@@ -1583,6 +1618,7 @@ window.onload=async()=>{
       const name=cloudUser.user_metadata?.name||cloudUser.email.split('@')[0];
       currentDoctor={name,email:cloudUser.email};
       db.saveDoctor(currentDoctor);
+      await db.loadFromCloud();
     }
   }catch(e){console.log('No session');}
   render();
