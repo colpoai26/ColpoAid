@@ -111,6 +111,7 @@ const SUPABASE_URL='https://fqepckbcykgpughkenmd.supabase.co';
 const SUPABASE_KEY='sb_publishable_Y2RkM7H_WcvxWuo_vy_Ayw_XlOxnPqg';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let cloudUser=null;
+function uuid(){return (crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}));}
 // ═══════════════════════════════════════
 // DATABASE
 // ═══════════════════════════════════════
@@ -148,7 +149,8 @@ const db={
       for(const s of list){
         await sb.from('estudios').upsert({
           id:s.id.length>20?s.id:undefined,
-          user_id:cloudUser.id,paciente_id:null,
+          user_id:cloudUser.id,
+          paciente_id:(s.patientId&&s.patientId.length>20)?s.patientId:null,
           fecha:s.date||null,motivo:s.motivo,
           hallazgos:s.findings,clock_marks:s.clockMarks,
           diagnostico:s.diagnostico,conducta:s.conducta,notas:s.notas,
@@ -157,6 +159,14 @@ const db={
         },{onConflict:'id'}).select();
       }
     }catch(e){console.log('Sync estudios:',e.message);}
+  },
+  deletePatientCloud:async(id)=>{
+    if(!cloudUser||id.length<20)return;
+    try{await sb.from('pacientes').delete().eq('id',id);}catch(e){console.log('Del paciente:',e.message);}
+  },
+  deleteStudyCloud:async(id)=>{
+    if(!cloudUser||id.length<20)return;
+    try{await sb.from('estudios').delete().eq('id',id);}catch(e){console.log('Del estudio:',e.message);}
   },
 };
 
@@ -603,8 +613,11 @@ function bindPatients(){}
 function viewPatientHistory(id){selectedPatient=db.patients().find(x=>x.id===id);currentPage='studies';renderPage();}
 function deletePatient(id){
   if(!confirm('¿Eliminar paciente y sus estudios?'))return;
+  const studiesToDelete=db.studies().filter(s=>s.patientId===id);
   db.savePatients(db.patients().filter(p=>p.id!==id));
   db.saveStudies(db.studies().filter(s=>s.patientId!==id));
+  db.deletePatientCloud(id);
+  studiesToDelete.forEach(s=>db.deleteStudyCloud(s.id));
   navigate('patients');toast('Paciente eliminada.','info');
 }
 function openPatientModal(id=null){
@@ -644,7 +657,7 @@ function closePatientModal(){document.getElementById('patient-modal').innerHTML=
 function savePatient(editId){
   const nombre=document.getElementById('pm-nombre').value.trim();
   if(!nombre){toast('El nombre es requerido.','err');return;}
-  const p={id:editId||Date.now().toString(),createdAt:editId?(db.patients().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString(),
+  const p={id:editId||uuid(),createdAt:editId?(db.patients().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString(),
     nombre,codigo:document.getElementById('pm-codigo').value,edad:document.getElementById('pm-edad').value,
     fecha:document.getElementById('pm-fecha').value,pap:document.getElementById('pm-pap').value,
     hpv:document.getElementById('pm-hpv').value,motivo:document.getElementById('pm-motivo').value,
@@ -757,7 +770,7 @@ function patientHistoryHTML(patient){
 }
 function deleteStudy(id){
   if(!confirm('¿Eliminar este estudio?'))return;
-  db.saveStudies(db.studies().filter(s=>s.id!==id));renderPage();toast('Estudio eliminado.','info');
+  db.saveStudies(db.studies().filter(s=>s.id!==id));db.deleteStudyCloud(id);renderPage();toast('Estudio eliminado.','info');
 }
 
 // ═══════════════════════════════════════
@@ -1371,7 +1384,7 @@ function toggleClock(h){
 
 function saveStudy(editId){
   captureStepData();const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;
-  const s={...studyFormData,id:editId||Date.now().toString(),createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
+  const s={...studyFormData,id:editId||uuid(),createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
   const all=db.studies();
   if(editId)db.saveStudies(all.map(x=>x.id===editId?s:x));else db.saveStudies([...all,s]);
   closeStudyModal();renderPage();
