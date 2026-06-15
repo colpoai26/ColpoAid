@@ -112,6 +112,16 @@ const SUPABASE_KEY='sb_publishable_Y2RkM7H_WcvxWuo_vy_Ayw_XlOxnPqg';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let cloudUser=null;
 function uuid(){return (crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}));}
+// Convierte base64 a Blob de forma compatible con móviles (sin fetch)
+function base64ToBlob(dataUrl){
+  const parts=dataUrl.split(',');
+  const byteString=atob(parts[1]);
+  const mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';
+  const ab=new ArrayBuffer(byteString.length);
+  const ia=new Uint8Array(ab);
+  for(let i=0;i<byteString.length;i++)ia[i]=byteString.charCodeAt(i);
+  return new Blob([ab],{type:mime});
+}
 // ═══════════════════════════════════════
 // DATABASE
 // ═══════════════════════════════════════
@@ -1446,12 +1456,15 @@ async function saveStudy(editId){
       // Si ya es una URL de la nube, dejarla como está
       if(typeof img==='string'&&img.startsWith('http')){uploadedUrls.push(img);continue;}
       try{
-        // Convertir base64 a blob
-        const blob=await(await fetch(img)).blob();
+        // Convertir base64 a blob (método compatible con móviles, sin fetch)
+        const blob=base64ToBlob(img);
         const path=`${cloudUser.id}/${studyId}_${i}_${Date.now()}.jpg`;
-        const {error}=await sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+        // Subida con timeout de 30s para que no se cuelgue
+        const uploadPromise=sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+        const timeout=new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),30000));
+        const {error}=await Promise.race([uploadPromise,timeout]);
         if(error)throw error;
-        uploadedUrls.push(path); // guardamos el path, no la URL pública (bucket privado)
+        uploadedUrls.push(path);
       }catch(e){
         console.log('Upload img:',e.message);
         uploadedUrls.push(img); // si falla, conservar local
