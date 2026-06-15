@@ -112,15 +112,20 @@ const SUPABASE_KEY='sb_publishable_Y2RkM7H_WcvxWuo_vy_Ayw_XlOxnPqg';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let cloudUser=null;
 function uuid(){return (crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}));}
-// Convierte base64 a Blob de forma compatible con móviles (sin fetch)
+// Convierte base64 a Blob de forma compatible con móviles y Safari (procesado en bloques)
 function base64ToBlob(dataUrl){
   const parts=dataUrl.split(',');
-  const byteString=atob(parts[1]);
   const mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';
-  const ab=new ArrayBuffer(byteString.length);
-  const ia=new Uint8Array(ab);
-  for(let i=0;i<byteString.length;i++)ia[i]=byteString.charCodeAt(i);
-  return new Blob([ab],{type:mime});
+  const byteString=atob(parts[1]);
+  const len=byteString.length;
+  const ia=new Uint8Array(len);
+  // Procesar en bloques de 8KB para no saturar Safari
+  const chunk=8192;
+  for(let offset=0;offset<len;offset+=chunk){
+    const end=Math.min(offset+chunk,len);
+    for(let i=offset;i<end;i++)ia[i]=byteString.charCodeAt(i);
+  }
+  return new Blob([ia],{type:mime});
 }
 // ═══════════════════════════════════════
 // DATABASE
@@ -1294,10 +1299,12 @@ function setStudyField(k,v){studyFormData[k]=v;captureStepData();document.getEle
 function closeStudyModal(){document.getElementById('study-modal').innerHTML='';}
 
 function handleImgFiles(files){
-  // En celulares achicamos más para evitar que el navegador se cuelgue
+  // En celulares y Safari achicamos más para evitar que el navegador se cuelgue
   const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  const maxSize=isMobile?900:1024;
-  const quality=isMobile?0.75:0.82;
+  const isSafari=/^((?!chrome|android).)*safari/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/i.test(navigator.userAgent));
+  const small=isMobile||isSafari;
+  const maxSize=small?850:1024;
+  const quality=small?0.72:0.82;
   Array.from(files).forEach(file=>{
     if(!file.type.startsWith('image/'))return;
     resizeImage(file,maxSize,quality,(resizedDataUrl)=>{
