@@ -1446,38 +1446,41 @@ async function saveStudy(editId){
   captureStepData();const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;
   const studyId=editId||uuid();
 
-  // Subir imágenes nuevas al bucket de Supabase
-  if(cloudUser&&studyFormData.images.length){
-    const saveBtn=document.querySelector('#study-step-content .btn-p');
-    if(saveBtn){saveBtn.innerHTML='<span class="spinner"></span> Guardando imágenes...';saveBtn.disabled=true;}
-    const uploadedUrls=[];
-    for(let i=0;i<studyFormData.images.length;i++){
-      const img=studyFormData.images[i];
-      // Si ya es una URL de la nube, dejarla como está
-      if(typeof img==='string'&&img.startsWith('http')){uploadedUrls.push(img);continue;}
-      try{
-        // Convertir base64 a blob (método compatible con móviles, sin fetch)
-        const blob=base64ToBlob(img);
-        const path=`${cloudUser.id}/${studyId}_${i}_${Date.now()}.jpg`;
-        // Subida con timeout de 30s para que no se cuelgue
-        const uploadPromise=sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
-        const timeout=new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),30000));
-        const {error}=await Promise.race([uploadPromise,timeout]);
-        if(error)throw error;
-        uploadedUrls.push(path);
-      }catch(e){
-        console.log('Upload img:',e.message);
-        uploadedUrls.push(img); // si falla, conservar local
-      }
-    }
-    studyFormData.imagePaths=uploadedUrls;
-  }
-
+  // Guardar el estudio YA (sin esperar las imágenes)
   const s={...studyFormData,id:studyId,createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
   const all=db.studies();
   if(editId)db.saveStudies(all.map(x=>x.id===editId?s:x));else db.saveStudies([...all,s]);
   closeStudyModal();renderPage();
   toast(editId?'Estudio actualizado.':'Estudio guardado.','ok');
+
+  // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea)
+  if(cloudUser&&s.images.length){
+    uploadStudyImages(studyId,s.images);
+  }
+}
+
+// Sube las imágenes de un estudio al bucket por detrás, sin bloquear la interfaz
+async function uploadStudyImages(studyId,images){
+  const uploadedPaths=[];
+  let huboSubida=false;
+  for(let i=0;i<images.length;i++){
+    const img=images[i];
+    if(typeof img==='string'&&img.startsWith('http')){uploadedPaths.push(img);continue;}
+    try{
+      const blob=base64ToBlob(img);
+      const path=`${cloudUser.id}/${studyId}_${i}_${Date.now()}.jpg`;
+      const {error}=await sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+      if(error)throw error;
+      uploadedPaths.push(path);huboSubida=true;
+    }catch(e){console.log('Upload img bg:',e.message);}
+  }
+  if(huboSubida){
+    // Actualizar el estudio con los paths de las imágenes en la nube
+    const studies=db.studies();
+    const st=studies.find(x=>x.id===studyId);
+    if(st){st.imagePaths=uploadedPaths;db.saveStudies(studies);}
+    toast('Imágenes sincronizadas en la nube.','ok');
+  }
 }
 
 // ── VIEW STUDY ──────────────────────────────────
