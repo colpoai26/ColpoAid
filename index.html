@@ -1294,9 +1294,13 @@ function setStudyField(k,v){studyFormData[k]=v;captureStepData();document.getEle
 function closeStudyModal(){document.getElementById('study-modal').innerHTML='';}
 
 function handleImgFiles(files){
+  // En celulares achicamos más para evitar que el navegador se cuelgue
+  const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const maxSize=isMobile?900:1024;
+  const quality=isMobile?0.75:0.82;
   Array.from(files).forEach(file=>{
     if(!file.type.startsWith('image/'))return;
-    resizeImage(file,1024,0.82,(resizedDataUrl)=>{
+    resizeImage(file,maxSize,quality,(resizedDataUrl)=>{
       studyFormData.images.push(resizedDataUrl);
       document.getElementById('img-thumbs').innerHTML=renderThumbs();
       document.getElementById('ai-analysis-section').innerHTML=studyFormData.aiAnalyzed?renderAiResults():renderAiButton();
@@ -1453,9 +1457,9 @@ async function saveStudy(editId){
   closeStudyModal();renderPage();
   toast(editId?'Estudio actualizado.':'Estudio guardado.','ok');
 
-  // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea)
+  // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea, diferido)
   if(cloudUser&&s.images.length){
-    uploadStudyImages(studyId,s.images);
+    setTimeout(()=>{uploadStudyImages(studyId,s.images);},500);
   }
 }
 
