@@ -112,6 +112,16 @@ const SUPABASE_KEY='sb_publishable_Y2RkM7H_WcvxWuo_vy_Ayw_XlOxnPqg';
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let cloudUser=null;
 function uuid(){return (crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16);}));}
+// Convierte base64 a Blob de forma compatible con móviles (sin fetch)
+function base64ToBlob(dataUrl){
+  const parts=dataUrl.split(',');
+  const byteString=atob(parts[1]);
+  const mime=(parts[0].match(/:(.*?);/)||[])[1]||'image/jpeg';
+  const ab=new ArrayBuffer(byteString.length);
+  const ia=new Uint8Array(ab);
+  for(let i=0;i<byteString.length;i++)ia[i]=byteString.charCodeAt(i);
+  return new Blob([ab],{type:mime});
+}
 // ═══════════════════════════════════════
 // DATABASE
 // ═══════════════════════════════════════
@@ -155,7 +165,8 @@ const db={
           hallazgos:s.findings,clock_marks:s.clockMarks,
           diagnostico:s.diagnostico,conducta:s.conducta,notas:s.notas,
           correlacion:s.correlacion,ai_analyzed:s.aiAnalyzed||false,
-          ai_summary:s.aiSummary,ai_confianza:s.aiConfianza,ai_zonas:s.aiZonas
+          ai_summary:s.aiSummary,ai_confianza:s.aiConfianza,ai_zonas:s.aiZonas,
+          image_paths:s.imagePaths||[]
         },{onConflict:'id'}).select();
       }
     }catch(e){console.log('Sync estudios:',e.message);}
@@ -183,19 +194,33 @@ const db={
         db.set(db._key('cai_p'),mapped);
       }
       if(estudios){
-        const mapped=estudios.map(s=>({
-          id:s.id,patientId:s.paciente_id,date:s.fecha||'',motivo:s.motivo||'',
-          findings:s.hallazgos||{},clockMarks:s.clock_marks||[],
-          diagnostico:s.diagnostico||'',conducta:s.conducta||'',notas:s.notas||'',
-          correlacion:s.correlacion||'',aiAnalyzed:s.ai_analyzed||false,
-          aiSummary:s.ai_summary||'',aiConfianza:s.ai_confianza||'',aiZonas:s.ai_zonas||[],
-          images:[],annotations:[],biopsias:[],createdAt:s.created_at
-        }));
-        // Conservar imágenes/biopsias locales si existen para ese estudio
+        const mapped=[];
+        for(const s of estudios){
+          const study={
+            id:s.id,patientId:s.paciente_id,date:s.fecha||'',motivo:s.motivo||'',
+            findings:s.hallazgos||{},clockMarks:s.clock_marks||[],
+            diagnostico:s.diagnostico||'',conducta:s.conducta||'',notas:s.notas||'',
+            correlacion:s.correlacion||'',aiAnalyzed:s.ai_analyzed||false,
+            aiSummary:s.ai_summary||'',aiConfianza:s.ai_confianza||'',aiZonas:s.ai_zonas||[],
+            images:[],annotations:[],biopsias:[],imagePaths:s.image_paths||[],createdAt:s.created_at
+          };
+          // Generar URLs firmadas para las imágenes del bucket
+          if(s.image_paths&&s.image_paths.length){
+            for(const path of s.image_paths){
+              if(path.startsWith('http')){study.images.push(path);continue;}
+              try{
+                const {data:signed}=await sb.storage.from('imagenes').createSignedUrl(path,3600);
+                if(signed?.signedUrl)study.images.push(signed.signedUrl);
+              }catch(e){console.log('Signed url:',e.message);}
+            }
+          }
+          mapped.push(study);
+        }
+        // Conservar biopsias locales si existen
         const local=db.studies();
         mapped.forEach(m=>{
           const loc=local.find(l=>l.id===m.id);
-          if(loc){m.images=loc.images||[];m.annotations=loc.annotations||[];m.biopsias=loc.biopsias||[];}
+          if(loc){m.biopsias=loc.biopsias||loc.biopsias||[];if(!m.images.length&&loc.images)m.images=loc.images;}
         });
         db.set(db._key('cai_s'),mapped);
       }
@@ -1269,9 +1294,13 @@ function setStudyField(k,v){studyFormData[k]=v;captureStepData();document.getEle
 function closeStudyModal(){document.getElementById('study-modal').innerHTML='';}
 
 function handleImgFiles(files){
+  // En celulares achicamos más para evitar que el navegador se cuelgue
+  const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const maxSize=isMobile?900:1024;
+  const quality=isMobile?0.75:0.82;
   Array.from(files).forEach(file=>{
     if(!file.type.startsWith('image/'))return;
-    resizeImage(file,1024,0.82,(resizedDataUrl)=>{
+    resizeImage(file,maxSize,quality,(resizedDataUrl)=>{
       studyFormData.images.push(resizedDataUrl);
       document.getElementById('img-thumbs').innerHTML=renderThumbs();
       document.getElementById('ai-analysis-section').innerHTML=studyFormData.aiAnalyzed?renderAiResults():renderAiButton();
@@ -1417,13 +1446,45 @@ function toggleClock(h){
   captureStepData();document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();
 }
 
-function saveStudy(editId){
+async function saveStudy(editId){
   captureStepData();const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;
-  const s={...studyFormData,id:editId||uuid(),createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
+  const studyId=editId||uuid();
+
+  // Guardar el estudio YA (sin esperar las imágenes)
+  const s={...studyFormData,id:studyId,createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
   const all=db.studies();
   if(editId)db.saveStudies(all.map(x=>x.id===editId?s:x));else db.saveStudies([...all,s]);
   closeStudyModal();renderPage();
   toast(editId?'Estudio actualizado.':'Estudio guardado.','ok');
+
+  // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea, diferido)
+  if(cloudUser&&s.images.length){
+    setTimeout(()=>{uploadStudyImages(studyId,s.images);},500);
+  }
+}
+
+// Sube las imágenes de un estudio al bucket por detrás, sin bloquear la interfaz
+async function uploadStudyImages(studyId,images){
+  const uploadedPaths=[];
+  let huboSubida=false;
+  for(let i=0;i<images.length;i++){
+    const img=images[i];
+    if(typeof img==='string'&&img.startsWith('http')){uploadedPaths.push(img);continue;}
+    try{
+      const blob=base64ToBlob(img);
+      const path=`${cloudUser.id}/${studyId}_${i}_${Date.now()}.jpg`;
+      const {error}=await sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+      if(error)throw error;
+      uploadedPaths.push(path);huboSubida=true;
+    }catch(e){console.log('Upload img bg:',e.message);}
+  }
+  if(huboSubida){
+    // Actualizar el estudio con los paths de las imágenes en la nube
+    const studies=db.studies();
+    const st=studies.find(x=>x.id===studyId);
+    if(st){st.imagePaths=uploadedPaths;db.saveStudies(studies);}
+    toast('Imágenes sincronizadas en la nube.','ok');
+  }
 }
 
 // ── VIEW STUDY ──────────────────────────────────
