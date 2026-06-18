@@ -135,9 +135,9 @@ const db={
   set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)),
   _key:(base)=>cloudUser?`${base}_${cloudUser.id}`:base,
   patients:()=>db.get(db._key('cai_p'),[]),
-  savePatients:v=>{db.set(db._key('cai_p'),v);db.syncPatients(v);},
+  savePatients:v=>{db.set(db._key('cai_p'),v);setTimeout(()=>db.syncPatients(v),100);},
   studies:()=>db.get(db._key('cai_s'),[]),
-  saveStudies:v=>{db.set(db._key('cai_s'),v);db.syncStudies(v);},
+  saveStudies:v=>{db.set(db._key('cai_s'),v);setTimeout(()=>db.syncStudies(v),100);},
   doctor:()=>db.get('cai_d',null),
   saveDoctor:v=>db.set('cai_d',v),
   clearDoctor:()=>localStorage.removeItem('cai_d'),
@@ -1400,17 +1400,23 @@ function toggleClock(h){
 async function saveStudy(editId){
   captureStepData();const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;
   const studyId=editId||uuid();
+  const imagesToUpload=[...(studyFormData.images||[])];
 
-  // Guardar el estudio YA (sin esperar las imágenes)
+  // Guardar el estudio YA. Para no congelar Safari, NO guardamos las imágenes
+  // base64 pesadas en localStorage si hay nube — se suben al bucket aparte.
   const s={...studyFormData,id:studyId,createdAt:editId?(db.studies().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString()};
+  if(cloudUser&&imagesToUpload.length){
+    // En localStorage guardamos liviano (sin base64 pesado); las fotos van al bucket
+    s.images=[];
+  }
   const all=db.studies();
   if(editId)db.saveStudies(all.map(x=>x.id===editId?s:x));else db.saveStudies([...all,s]);
   closeStudyModal();renderPage();
   toast(editId?'Estudio actualizado.':'Estudio guardado.','ok');
 
   // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea, diferido)
-  if(cloudUser&&s.images.length){
-    setTimeout(()=>{uploadStudyImages(studyId,s.images);},500);
+  if(cloudUser&&imagesToUpload.length){
+    setTimeout(()=>{uploadStudyImages(studyId,imagesToUpload);},300);
   }
 }
 
@@ -1433,8 +1439,22 @@ async function uploadStudyImages(studyId,images){
     // Actualizar el estudio con los paths de las imágenes en la nube
     const studies=db.studies();
     const st=studies.find(x=>x.id===studyId);
-    if(st){st.imagePaths=uploadedPaths;db.saveStudies(studies);}
+    if(st){
+      st.imagePaths=uploadedPaths;
+      // Generar URLs firmadas para poder mostrar las imágenes sin guardar base64
+      st.images=[];
+      for(const path of uploadedPaths){
+        if(path.startsWith('http')){st.images.push(path);continue;}
+        try{
+          const {data:signed}=await sb.storage.from('imagenes').createSignedUrl(path,3600);
+          if(signed?.signedUrl)st.images.push(signed.signedUrl);
+        }catch(e){}
+      }
+      db.saveStudies(studies);
+    }
     toast('Imágenes sincronizadas en la nube.','ok');
+    // Si estoy viendo el historial, refrescar para mostrar las imágenes
+    if(currentPage==='studies'&&selectedPatient)renderPage();
   }
 }
 
