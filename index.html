@@ -185,8 +185,7 @@ const db={
     try{await sb.from('estudios').delete().eq('id',id);}catch(e){console.log('Del estudio:',e.message);}
   },
   // Cargar datos desde la nube y fusionar con lo local
-  loadFromCloud:async()=>{
-    if(!cloudUser)return;
+  loadFromCloud:async()=>{    if(!cloudUser)return;
     try{
       const {data:pacientes}=await sb.from('pacientes').select('*').eq('user_id',cloudUser.id);
       const {data:estudios}=await sb.from('estudios').select('*').eq('user_id',cloudUser.id);
@@ -414,14 +413,14 @@ function bindLogin(){
         }
         cloudUser=data.user;
         currentDoctor={name,email};db.saveDoctor(currentDoctor);
-        await db.loadFromCloud();render();
+        await db.loadFromCloud();subscribeRealtime();render();
       }else{
         const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
         if(error)throw error;
         cloudUser=data.user;
         const name=data.user.user_metadata?.name||email.split('@')[0];
         currentDoctor={name,email};db.saveDoctor(currentDoctor);
-        await db.loadFromCloud();render();
+        await db.loadFromCloud();subscribeRealtime();render();
       }
     }catch(e){
       err.style.display='block';
@@ -457,7 +456,7 @@ function sidebarHTML(){
     <button class="nav-item" onclick="logout()">🚪 <span class="lbl-hide">Salir</span></button>
   </div></aside>`;
 }
-async function logout(){await sb.auth.signOut();cloudUser=null;db.clearDoctor();currentDoctor=null;currentPage='dashboard';selectedPatient=null;render();}
+async function logout(){if(realtimeChannel){sb.removeChannel(realtimeChannel);realtimeChannel=null;}await sb.auth.signOut();cloudUser=null;db.clearDoctor();currentDoctor=null;currentPage='dashboard';selectedPatient=null;render();}
 
 // ═══════════════════════════════════════
 // SETTINGS PAGE
@@ -1651,10 +1650,34 @@ window.onload=async()=>{
       currentDoctor={name,email:cloudUser.email};
       db.saveDoctor(currentDoctor);
       await db.loadFromCloud();
+      subscribeRealtime();
     }
   }catch(e){console.log('No session');}
   render();
 };
+
+// ── Sincronización en tiempo real ──
+// Escucha cambios en la nube y actualiza la pantalla sola
+let realtimeChannel=null;
+let realtimeTimer=null;
+function subscribeRealtime(){
+  if(!cloudUser||realtimeChannel)return;
+  realtimeChannel=sb.channel('cambios-colpoaid')
+    .on('postgres_changes',{event:'*',schema:'public',table:'pacientes',filter:`user_id=eq.${cloudUser.id}`},onRealtimeChange)
+    .on('postgres_changes',{event:'*',schema:'public',table:'estudios',filter:`user_id=eq.${cloudUser.id}`},onRealtimeChange)
+    .subscribe();
+}
+function onRealtimeChange(){
+  // Esperar un momento y recargar (evita recargas múltiples seguidas)
+  clearTimeout(realtimeTimer);
+  realtimeTimer=setTimeout(async()=>{
+    // No interrumpir si hay un modal abierto (editando)
+    const modalAbierto=document.querySelector('.modal-bg');
+    if(modalAbierto)return;
+    await db.loadFromCloud();
+    renderPage();
+  },800);
+}
 </script>
 </body>
 </html>
