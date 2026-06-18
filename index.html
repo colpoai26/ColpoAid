@@ -1675,8 +1675,14 @@ function onRealtimeChange(){
     const modalAbierto=document.querySelector('.modal-bg');
     if(modalAbierto)return;
     await db.loadFromCloud();
+    // Si estoy viendo el detalle de una paciente, refrescar la referencia
+    if(selectedPatient){
+      const fresh=db.patients().find(p=>p.id===selectedPatient.id);
+      if(fresh)selectedPatient=fresh;
+    }
+    // Re-renderizar la vista actual completa para reflejar imágenes nuevas
     renderPage();
-  },800);
+  },1200);
 }
 </script>
 </body>
