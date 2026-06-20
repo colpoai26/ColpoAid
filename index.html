@@ -325,8 +325,21 @@ IMPORTANTE: Esta es una herramienta de DOCUMENTACIÓN y APOYO descriptivo. No re
 
   const data=await response.json();
   const text=data.text||'';
-  const clean=text.replace(/```json|```/g,'').trim();
-  return JSON.parse(clean);
+  let clean=text.replace(/```json|```/g,'').trim();
+  // Intentar parsear; si viene incompleto, intentar recuperar el JSON
+  try{
+    return JSON.parse(clean);
+  }catch(e){
+    // Recuperación: extraer desde la primera { hasta la última }
+    const first=clean.indexOf('{');
+    const last=clean.lastIndexOf('}');
+    if(first>=0&&last>first){
+      let candidate=clean.slice(first,last+1);
+      try{return JSON.parse(candidate);}catch(e2){}
+    }
+    // Si no se pudo recuperar, error claro
+    throw new Error('La respuesta de la IA llegó incompleta. Probá analizar de nuevo.');
+  }
 }
 
 // ═══════════════════════════════════════
