@@ -284,8 +284,8 @@ Analizá la imagen y respondé ÚNICAMENTE con un objeto JSON válido con esta e
   "advertencia": "Recordatorio de que es una descripción asistida y la valoración corresponde al médico",
   "zonas": [
     {
-      "tipo": "nombre descriptivo del hallazgo observado (ej: Acetoblanco, Mosaico, Vasos, Punteado, Leucoplasia)",
-      "color": "color hex (usa #00d4b8 para acetoblanco, #e85555 para vasos, #f5a623 para mosaico, #4f8ef7 para punteado, #ffffff para leucoplasia)",
+      "tipo": "nombre descriptivo del hallazgo observado (ej: Acetoblanco, Mosaico grueso, Mosaico fino, Vasos, Punteado, Leucoplasia)",
+      "atencion": "alto|medio|leve (nivel de atención sugerido según cuán llamativo/prominente es el hallazgo — NO es un diagnóstico, solo prominencia visual)",
       "forma": "circulo|rectangulo|poligono",
       "x": porcentaje horizontal del centro (0-100),
       "y": porcentaje vertical del centro (0-100),
@@ -294,6 +294,12 @@ Analizá la imagen y respondé ÚNICAMENTE con un objeto JSON válido con esta e
     }
   ]
 }
+
+NIVEL DE ATENCIÓN (campo "atencion") — NO es diagnóstico, es prominencia visual:
+- "alto": hallazgo muy prominente/llamativo que conviene destacar para evaluación
+- "medio": hallazgo presente que vale la pena considerar
+- "leve": hallazgo sutil o tenue
+- Es solo una guía visual de cuánto resalta el área, NO una clasificación de gravedad ni grado.
 
 REGLAS FUNDAMENTALES (lenguaje DESCRIPTIVO, no diagnóstico):
 - DESCRIBÍ lo que se ve, NO interpretes ni clasifiques en grados.
@@ -1098,13 +1104,19 @@ function renderAiResults(){
       </div>
       ${zonas.length>0?`
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">🎯 Zonas detectadas en imagen</div>
-        <div style="display:flex;flex-direction:column;gap:5px">
-          ${zonas.map(z=>`<div style="display:flex;align-items:center;gap:8px;font-size:12px">
-            <div style="width:10px;height:10px;border-radius:50%;background:${z.color||zonaColors[z.tipo]||'#a78bfa'};flex-shrink:0;box-shadow:0 0 6px ${z.color||'#a78bfa'}"></div>
-            <span style="font-weight:600;color:var(--text)">${z.tipo}</span>
-            <span style="color:var(--text3)">— ${z.descripcion||''}</span>
-          </div>`).join('')}
+        <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">🎯 Referencias de zonas</div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">El color indica nivel de atención sugerido · el texto, el hallazgo descriptivo</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${zonas.map((z,i)=>{const col=atencionColor(z.atencion);return`<div style="display:flex;align-items:center;gap:8px;font-size:12px">
+            <div style="width:20px;height:20px;border-radius:50%;background:rgba(13,16,24,0.9);border:2px solid ${col};color:${col};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;flex-shrink:0;box-shadow:0 0 6px ${col}66">${i+1}</div>
+            <span style="font-weight:600;color:var(--text)">${z.tipo||'Hallazgo'}</span>
+            ${z.descripcion?`<span style="color:var(--text3)">— ${z.descripcion}</span>`:''}
+          </div>`}).join('')}
+        </div>
+        <div style="display:flex;gap:12px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)">
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#e85555;display:inline-block"></span>Atención alta</span>
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#f5a623;display:inline-block"></span>Media</span>
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:#f5d76e;display:inline-block"></span>Leve</span>
         </div>
         <button class="btn btn-sm" onclick="redrawAiZones()" style="margin-top:10px;background:var(--purpleg);color:var(--purple);border:1px solid rgba(167,139,250,.2)">🎨 Redibujar zonas en imagen</button>
       </div>`:''}
@@ -1115,6 +1127,14 @@ function renderAiResults(){
 }
 
 // Draw AI-detected zones on the canvas
+// Color según nivel de atención (NO diagnóstico — solo prominencia visual)
+function atencionColor(nivel){
+  const n=(nivel||'medio').toLowerCase();
+  if(n==='alto')return '#e85555';   // rojo
+  if(n==='medio')return '#f5a623';  // naranja
+  if(n==='leve')return '#f5d76e';   // amarillo
+  return '#f5a623';
+}
 function drawAiZones(zonas){
   const canvas=document.getElementById('annot-canvas');
   const img=document.getElementById('annot-img');
@@ -1126,11 +1146,11 @@ function drawAiZones(zonas){
   // Keep existing manual paths + add AI zones
   redrawCanvas(); // redraw manual annotations first
 
-  zonas.forEach(zona=>{
+  zonas.forEach((zona,idx)=>{
     const cx=(zona.x/100)*W;
     const cy=(zona.y/100)*H;
     const r=((zona.radio||15)/100)*Math.min(W,H);
-    const color=zona.color||'#a78bfa';
+    const color=atencionColor(zona.atencion);
 
     ctx.save();
 
@@ -1155,31 +1175,23 @@ function drawAiZones(zonas){
     ctx.setLineDash([]);
     ctx.shadowBlur=0;
 
-    // Label background
-    const label=zona.tipo||'Hallazgo';
-    ctx.font='bold 11px DM Sans, sans-serif';
-    const tw=ctx.measureText(label).width;
-    const lx=cx-tw/2-6;
-    const ly=cy+r+4;
-    ctx.fillStyle='rgba(13,16,24,0.85)';
+    // Número de referencia (imagen limpia, sin texto descriptivo encima)
+    const num=String(idx+1);
+    ctx.font='bold 13px DM Sans, sans-serif';
+    ctx.fillStyle=color;
     ctx.beginPath();
-    ctx.roundRect(lx,ly,tw+12,20,4);
+    ctx.arc(cx,cy,11,0,Math.PI*2);
+    ctx.fillStyle='rgba(13,16,24,0.9)';
     ctx.fill();
-
-    // Border on label
-    ctx.strokeStyle=color+'88';
-    ctx.lineWidth=1;
+    ctx.strokeStyle=color;
+    ctx.lineWidth=2;
     ctx.stroke();
-
-    // Label text
     ctx.fillStyle=color;
-    ctx.fillText(label,cx-tw/2,ly+14);
-
-    // Center dot
-    ctx.fillStyle=color;
-    ctx.beginPath();
-    ctx.arc(cx,cy,4,0,Math.PI*2);
-    ctx.fill();
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText(num,cx,cy+0.5);
+    ctx.textAlign='left';
+    ctx.textBaseline='alphabetic';
 
     ctx.restore();
   });
