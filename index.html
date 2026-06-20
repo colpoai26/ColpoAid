@@ -262,7 +262,7 @@ let currentDoctor=null,currentPage='dashboard',selectedPatient=null;
 // MOTOR IA ColpoAId
 // ═══════════════════════════════════════
 async function analyzeImageWithAI(base64Image,patientContext=''){
-  const prompt=`Sos un asistente médico especializado en colposcopía. Analizá esta imagen colposcópica y completá el siguiente informe estructurado.
+  const prompt=`Sos un asistente de DOCUMENTACIÓN colposcópica. Tu rol es DESCRIBIR objetivamente lo que se observa en la imagen, como lo dictaría un médico al registrar sus hallazgos. NO emitís diagnósticos ni grados de lesión. La interpretación diagnóstica corresponde EXCLUSIVAMENTE al médico.
 
 Contexto de la paciente: ${patientContext||'Sin datos adicionales'}
 
@@ -277,35 +277,39 @@ Analizá la imagen y respondé ÚNICAMENTE con un objeto JSON válido con esta e
   "yodo": "Yodo positivo|Yodo negativo parcial|Yodo negativo|",
   "cervicitis": true|false,
   "leucoplasia": true|false,
-  "diagnostico": "Normal|Hallazgos menores (G1)|Hallazgos mayores (G2)|Sospecha de carcinoma|Colposcopía insatisfactoria",
-  "conducta": "Control anual|Control semestral|Biopsia dirigida|Tratamiento escisional|Derivación oncología",
-  "clockMarks": [lista de horas 1-12 donde hay hallazgos, ej: [3,6,9]],
-  "resumen": "Descripción clínica detallada de los hallazgos observados en la imagen en 2-3 oraciones.",
+  "descripcion": "Descripción objetiva y detallada de lo que se observa, en lenguaje clínico descriptivo (NO diagnóstico). Ej: 'Se observa epitelio acetoblanco de bordes definidos en cuadrante superior, con patrón de mosaico grueso. Unión escamocolumnar visible.' Describí ubicación, características y extensión de lo observado.",
+  "sugerencia": "Sugerencia prudente sobre áreas que el médico podría considerar evaluar, SIN indicar conducta médica específica. Ej: 'Se sugiere considerar la evaluación del área acetoblanca descrita según criterio del profesional.' Si no hay hallazgos relevantes: 'Sin áreas que requieran señalamiento particular.'",
+  "clockMarks": [lista de horas 1-12 donde se observan hallazgos, ej: [3,6,9]],
   "confianza": "Alta|Media|Baja",
-  "advertencia": "Nota sobre limitaciones del análisis automático",
+  "advertencia": "Recordatorio de que es una descripción asistida y la valoración corresponde al médico",
   "zonas": [
     {
-      "tipo": "nombre del hallazgo (ej: Acetoblanco, Mosaico, Vasos atípicos, Punteado, Leucoplasia)",
-      "color": "color hex para dibujar (usa #00d4b8 para acetoblanco, #e85555 para vasos atípicos, #f5a623 para mosaico, #4f8ef7 para punteado, #ffffff para leucoplasia)",
+      "tipo": "nombre descriptivo del hallazgo observado (ej: Acetoblanco, Mosaico, Vasos, Punteado, Leucoplasia)",
+      "color": "color hex (usa #00d4b8 para acetoblanco, #e85555 para vasos, #f5a623 para mosaico, #4f8ef7 para punteado, #ffffff para leucoplasia)",
       "forma": "circulo|rectangulo|poligono",
-      "x": porcentaje horizontal del centro (0-100, siendo 0 izquierda y 100 derecha),
-      "y": porcentaje vertical del centro (0-100, siendo 0 arriba y 100 abajo),
+      "x": porcentaje horizontal del centro (0-100),
+      "y": porcentaje vertical del centro (0-100),
       "radio": porcentaje del tamaño de la zona (5-35),
-      "descripcion": "descripción breve de la zona"
+      "descripcion": "descripción breve y objetiva de lo observado en la zona"
     }
   ]
 }
 
-INSTRUCCIONES PARA LAS ZONAS:
-- Identificá todas las áreas sospechosas visibles en la imagen
-- Usá coordenadas en PORCENTAJE (0-100) relativas al tamaño total de la imagen
-- El centro de la imagen cervical suele estar entre x:30-70, y:25-75
-- Marcá SOLO zonas donde realmente veas hallazgos patológicos
-- Si no hay hallazgos, el array zonas debe estar vacío []
-- Máximo 6 zonas
-- Si la imagen no es colposcópica o tiene mala calidad, zonas=[]
+REGLAS FUNDAMENTALES (lenguaje DESCRIPTIVO, no diagnóstico):
+- DESCRIBÍ lo que se ve, NO interpretes ni clasifiques en grados.
+- PROHIBIDO usar términos diagnósticos como: "alto grado", "bajo grado", "CIN I/II/III", "NIC", "lesión de alto/bajo grado", "displasia", "carcinoma", "G1/G2", "sospecha de malignidad".
+- En lugar de diagnosticar, DESCRIBÍ las características visuales (color, bordes, patrón vascular, extensión, ubicación).
+- Podés SUGERIR con prudencia áreas a considerar evaluar, pero NUNCA indicar conducta médica (no decir "hacer biopsia", "derivar", "tratar").
+- Usá lenguaje como "se observa", "se aprecia", "se identifica", "área a considerar según criterio del profesional".
 
-IMPORTANTE: Este análisis es de apoyo diagnóstico. La decisión clínica final siempre corresponde al médico tratante.`;
+INSTRUCCIONES PARA LAS ZONAS:
+- Marcá las áreas con hallazgos visibles, usando coordenadas en PORCENTAJE (0-100).
+- El centro de la imagen cervical suele estar entre x:30-70, y:25-75.
+- Marcá SOLO zonas donde realmente observes hallazgos.
+- Si no hay hallazgos, zonas=[]. Máximo 6 zonas.
+- Si la imagen no es colposcópica o tiene mala calidad, zonas=[].
+
+IMPORTANTE: Esta es una herramienta de DOCUMENTACIÓN y APOYO descriptivo. No reemplaza la valoración clínica. Toda interpretación diagnóstica y decisión corresponde exclusivamente al médico tratante.`;
 
   // Llamar a la función serverless (proxy seguro) en vez de a la API directamente
   const response=await fetch('/api/analyze',{
@@ -799,7 +803,7 @@ function openStudyModal(id=null){
   studyFormData=edit?JSON.parse(JSON.stringify(edit)):{
     patientId:selectedPatient.id,date:new Date().toISOString().slice(0,10),
     images:[],annotations:[],clockMarks:[],biopsias:[],correlacion:'',
-    aiAnalyzed:false,aiSummary:'',
+    aiAnalyzed:false,aiSummary:'',aiDescripcion:'',aiSugerencia:'',
     findings:{union:'',acetoblanco:'',mosaico:'',punteado:false,vasos:false,yodo:'',cervicitis:false,leucoplasia:false},
     diagnostico:'',conducta:'',notas:'',
   };
@@ -907,13 +911,13 @@ function renderStudyStep(editId){
     const radios=(name,opts,val)=>opts.map(o=>`<button type="button" class="radio-opt${val===o?' on':''}" onclick="setStudyField('${name}','${o}')">${o}</button>`).join(' ');
     return`
     ${studyFormData.aiAnalyzed?`<div style="background:var(--purpleg);border:1px solid rgba(167,139,250,.2);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--purple);margin-bottom:16px">
-      🤖 Diagnóstico sugerido por IA — confirmá o modificá según tu criterio clínico
+      🤖 La IA generó una descripción de los hallazgos. El diagnóstico y la conducta son TU valoración clínica.
     </div>`:''}
-    <div class="fg"><label class="lbl">Impresión diagnóstica (IFCPC)</label>
+    <div class="fg"><label class="lbl">Impresión diagnóstica (IFCPC) — valoración del médico</label>
       <div style="display:flex;flex-wrap:wrap;gap:7px">
         ${radios('diagnostico',['Normal','Hallazgos menores (G1)','Hallazgos mayores (G2)','Sospecha de carcinoma','Colposcopía insatisfactoria'],studyFormData.diagnostico)}
       </div></div>
-    <div class="fg"><label class="lbl">Conducta</label>
+    <div class="fg"><label class="lbl">Conducta — decisión del médico</label>
       <div style="display:flex;flex-wrap:wrap;gap:7px">
         ${radios('conducta',['Control anual','Control semestral','Biopsia dirigida','Tratamiento escisional','Derivación oncología'],studyFormData.conducta)}
       </div></div>
@@ -1061,13 +1065,23 @@ function renderAiResults(){
       <button class="btn btn-ai btn-sm" onclick="runAiAnalysis()">🔄 Re-analizar</button>
     </div>
     <div class="ai-result">
-      ${studyFormData.aiSummary?`<div style="font-size:13px;color:var(--text2);font-style:italic;margin-bottom:12px;line-height:1.7;padding-bottom:12px;border-bottom:1px solid var(--border)">"${studyFormData.aiSummary}"</div>`:''}
+      ${studyFormData.aiDescripcion?`<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">📝 Descripción observada</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.7">${studyFormData.aiDescripcion}</div>
+      </div>`:''}
+      ${studyFormData.aiSugerencia?`<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">💡 Sugerencia</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.7">${studyFormData.aiSugerencia}</div>
+      </div>`:''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-        ${[['UEC',f.union],['Acetoblanco',f.acetoblanco],['Mosaico',f.mosaico],['Punteado',f.punteado?'Presente':'—'],['Vasos atípicos',f.vasos?'Presentes':'—'],['Diagnóstico',studyFormData.diagnostico]].map(([k,v])=>`
+        ${[['UEC',f.union],['Acetoblanco',f.acetoblanco],['Mosaico',f.mosaico],['Punteado',f.punteado?'Presente':'—'],['Vasos',f.vasos?'Presentes':'—'],['Leucoplasia',f.leucoplasia?'Presente':'—']].map(([k,v])=>`
         <div class="ai-finding-row">
           <span style="font-size:11px;color:var(--text3)">${k}</span>
           <span style="font-size:12px;font-weight:600;color:${v&&v!=='—'?'var(--text)':'var(--text3)'}">${v||'—'}</span>
         </div>`).join('')}
+      </div>
+      <div style="margin-top:12px;background:var(--purpleg);border:1px solid rgba(167,139,250,.2);border-radius:7px;padding:9px 11px;font-size:11px;color:var(--purple)">
+        ℹ️ Esta descripción es asistida. El diagnóstico y la conducta los definís vos en el siguiente paso, según tu criterio clínico.
       </div>
       ${zonas.length>0?`
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
@@ -1185,17 +1199,22 @@ async function runAiAnalysis(){
     const result=await analyzeImageWithAI(studyFormData.images[0],patientCtx);
     if(!result)return;
 
-    // Apply results to form
+    // Apply results to form (solo descriptivo, NO diagnóstico ni conducta)
     studyFormData.findings={
       union:result.union||'',acetoblanco:result.acetoblanco||'',mosaico:result.mosaico||'',
       punteado:!!result.punteado,vasos:!!result.vasos,yodo:result.yodo||'',
       cervicitis:!!result.cervicitis,leucoplasia:!!result.leucoplasia,
     };
-    if(result.diagnostico)studyFormData.diagnostico=result.diagnostico;
-    if(result.conducta)studyFormData.conducta=result.conducta;
+    // La IA YA NO completa diagnóstico ni conducta — eso lo decide el médico
     if(result.clockMarks)studyFormData.clockMarks=result.clockMarks;
-    if(result.resumen)studyFormData.notas=result.resumen;
-    studyFormData.aiSummary=result.resumen||'';
+    // Guardar descripción y sugerencia (lenguaje descriptivo, no diagnóstico)
+    const descripcion=result.descripcion||result.resumen||'';
+    const sugerencia=result.sugerencia||'';
+    studyFormData.aiDescripcion=descripcion;
+    studyFormData.aiSugerencia=sugerencia;
+    // Volcar la descripción a las notas (el médico puede editarla)
+    if(descripcion)studyFormData.notas=descripcion+(sugerencia?`\n\nSugerencia: ${sugerencia}`:'');
+    studyFormData.aiSummary=descripcion;
     studyFormData.aiConfianza=result.confianza||'';
     studyFormData.aiAdvertencia=result.advertencia||'';
     studyFormData.aiZonas=result.zonas||[];
@@ -1492,7 +1511,7 @@ function viewStudy(id){
         </div>
       </div>
       ${s.diagnostico?`<div style="background:var(--surface);border-radius:10px;padding:14px;margin-bottom:16px">
-        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Diagnóstico</div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Diagnóstico (valoración del médico)</div>
         <div style="font-size:16px;font-family:Lora,serif;color:var(--text);margin-top:2px">${s.diagnostico}</div>
         ${s.conducta?`<div style="font-size:13px;color:var(--teal);margin-top:8px">Conducta: ${s.conducta}</div>`:''}
       </div>`:''}
