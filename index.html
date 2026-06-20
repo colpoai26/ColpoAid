@@ -474,7 +474,7 @@ function sidebarHTML(){
   <div style="padding:12px 10px;border-top:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;margin-bottom:6px">
       <div style="width:28px;height:28px;border-radius:50%;background:var(--blueg);border:1px solid rgba(79,142,247,.3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--blue);flex-shrink:0">${currentDoctor?.name?.[0]||'M'}</div>
-      <div class="lbl-hide" style="min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentDoctor?.name}</div><div style="font-size:10px;color:var(--text3)">Ginecóloga · ColpoAId</div></div>
+      <div class="lbl-hide" style="min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentDoctor?.name}</div><div style="font-size:10px;color:var(--text3)">${currentDoctor?.especialidad||'Profesional'} · ColpoAId</div></div>
     </div>
     <button class="nav-item" onclick="logout()">🚪 <span class="lbl-hide">Salir</span></button>
   </div></aside>`;
@@ -485,9 +485,31 @@ async function logout(){if(realtimeChannel){sb.removeChannel(realtimeChannel);re
 // SETTINGS PAGE
 // ═══════════════════════════════════════
 function settingsHTML(){
+  const prof=db.doctor()||{};
   return`<div class="fade">
   <div style="font-family:Lora,serif;font-size:22px;margin-bottom:6px">Configuración</div>
-  <div style="font-size:13px;color:var(--text3);margin-bottom:24px">Ajustes del sistema</div>
+  <div style="font-size:13px;color:var(--text3);margin-bottom:24px">Ajustes del sistema y perfil profesional</div>
+
+  <div class="card" style="max-width:600px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <div style="width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:18px">👤</div>
+      <div>
+        <div style="font-weight:600;font-size:15px">Perfil profesional</div>
+        <div style="font-size:12px;color:var(--text3)">Estos datos aparecen en la firma de tus informes PDF</div>
+      </div>
+    </div>
+    <div class="fg"><label class="lbl">Nombre completo</label>
+      <input id="prof-name" type="text" value="${prof.name||''}" placeholder="Dr/a. Ana García"/></div>
+    <div class="grid2" style="gap:12px">
+      <div class="fg"><label class="lbl">Matrícula</label>
+        <input id="prof-matricula" type="text" value="${prof.matricula||''}" placeholder="MN 12345 / MP 67890"/></div>
+      <div class="fg"><label class="lbl">Especialidad</label>
+        <input id="prof-especialidad" type="text" value="${prof.especialidad||'Ginecología'}" placeholder="Ginecología"/></div>
+    </div>
+    <div class="fg"><label class="lbl">Institución / Consultorio (opcional)</label>
+      <input id="prof-institucion" type="text" value="${prof.institucion||''}" placeholder="Hospital / Clínica / Consultorio particular"/></div>
+    <button class="btn btn-p" onclick="saveProfile()">✓ Guardar perfil</button>
+  </div>
 
   <div class="card" style="max-width:600px;margin-bottom:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
@@ -526,6 +548,17 @@ function settingsHTML(){
   </div>`;
 }
 function bindSettings(){}
+function saveProfile(){
+  const prof=db.doctor()||{};
+  prof.name=document.getElementById('prof-name').value.trim()||prof.name;
+  prof.matricula=document.getElementById('prof-matricula').value.trim();
+  prof.especialidad=document.getElementById('prof-especialidad').value.trim();
+  prof.institucion=document.getElementById('prof-institucion').value.trim();
+  db.saveDoctor(prof);
+  currentDoctor=prof;
+  render();
+  toast('Perfil guardado. Aparecerá en tus informes.','ok');
+}
 function saveApiKey(){
   const key=document.getElementById('api-key-input')?.value?.trim();
   if(!key){toast('Ingresá una API key válida.','err');return;}
@@ -558,7 +591,7 @@ function dashboardHTML(){
   return`<div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:26px">
     <div>
-      <div style="font-family:Lora,serif;font-size:24px">Bienvenida, ${currentDoctor?.name?.split(' ').slice(-1)[0]||'Doctora'} 👋</div>
+      <div style="font-family:Lora,serif;font-size:24px">Bienvenido/a, ${currentDoctor?.name?.split(' ').slice(-1)[0]||''} 👋</div>
       <div style="font-size:13px;color:var(--text3);margin-top:2px">${dateStr}</div>
     </div>
     <button class="btn btn-p" onclick="navigate('patients')">＋ Nueva paciente</button>
@@ -1672,10 +1705,22 @@ function generatePDF(studyId){
     }
     if(y>250){doc.addPage();y=20;}
     doc.setFillColor(26,34,50);doc.rect(M,y,W-M*2,.3,'F');y+=8;
+    // Datos del profesional (perfil)
+    const prof=db.doctor()||{};
     doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(80,94,122);
     doc.text('Firma y sello profesional:',M,y);
-    doc.setDrawColor(80,94,122);doc.setLineWidth(.2);doc.line(M+55,y,M+130,y);y+=16;
-    doc.setFontSize(8);doc.text('Generado por ColpoAId · MedicAId · Análisis de apoyo — decisión clínica a cargo del médico tratante',W/2,y,{align:'center'});
+    doc.setDrawColor(80,94,122);doc.setLineWidth(.2);doc.line(M+55,y,M+130,y);y+=10;
+    if(prof.name||prof.matricula){
+      doc.setTextColor(40,50,70);doc.setFont('helvetica','bold');doc.setFontSize(10);
+      if(prof.name){doc.text(prof.name,M,y);y+=5;}
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(80,94,122);
+      const linea=[prof.especialidad,prof.matricula].filter(Boolean).join(' · ');
+      if(linea){doc.text(linea,M,y);y+=5;}
+      if(prof.institucion){doc.text(prof.institucion,M,y);y+=5;}
+    }
+    y+=6;
+    doc.setFontSize(8);doc.setTextColor(80,94,122);
+    doc.text('Generado por ColpoAId · MedicAId · Análisis de apoyo — decisión clínica a cargo del médico tratante',W/2,y,{align:'center'});
     doc.save(`ColpoAI_${p.nombre?.replace(/\s+/g,'_')||'paciente'}_${s.date||'sin-fecha'}.pdf`);
     toast('PDF descargado.','ok');
   }catch(e){console.error(e);toast('Error al generar PDF.','err');}
