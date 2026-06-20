@@ -474,7 +474,7 @@ function sidebarHTML(){
   <div style="padding:12px 10px;border-top:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;margin-bottom:6px">
       <div style="width:28px;height:28px;border-radius:50%;background:var(--blueg);border:1px solid rgba(79,142,247,.3);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--blue);flex-shrink:0">${currentDoctor?.name?.[0]||'M'}</div>
-      <div class="lbl-hide" style="min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentDoctor?.name}</div><div style="font-size:10px;color:var(--text3)">${currentDoctor?.especialidad||'Profesional'} · ColpoAId</div></div>
+      <div class="lbl-hide" style="min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${currentDoctor?.name}</div><div style="font-size:10px;color:var(--text3)">${tratamiento()} · ColpoAId</div></div>
     </div>
     <button class="nav-item" onclick="logout()">🚪 <span class="lbl-hide">Salir</span></button>
   </div></aside>`;
@@ -506,8 +506,25 @@ function settingsHTML(){
       <div class="fg"><label class="lbl">Especialidad</label>
         <input id="prof-especialidad" type="text" value="${prof.especialidad||'Ginecología'}" placeholder="Ginecología"/></div>
     </div>
+    <div class="fg"><label class="lbl">Género (para personalizar el trato)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:7px" id="genero-group">
+        ${[['F','Femenino'],['M','Masculino'],['N','No binario / Prefiero no decir']].map(([val,lbl])=>`
+        <button type="button" class="radio-opt${(prof.genero||'')===val?' on':''}" onclick="selectGenero('${val}')" data-g="${val}">${lbl}</button>`).join('')}
+      </div>
+    </div>
     <div class="fg"><label class="lbl">Institución / Consultorio (opcional)</label>
       <input id="prof-institucion" type="text" value="${prof.institucion||''}" placeholder="Hospital / Clínica / Consultorio particular"/></div>
+
+    <div class="fg"><label class="lbl">Firma (dibujá tu firma con el mouse o el dedo)</label>
+      <div style="background:#fff;border:1px solid var(--border2);border-radius:8px;overflow:hidden;position:relative">
+        <canvas id="firma-canvas" width="500" height="160" style="width:100%;height:160px;touch-action:none;cursor:crosshair;display:block"></canvas>
+        ${prof.firma?`<img id="firma-preview" src="${prof.firma}" style="position:absolute;top:0;left:0;width:100%;height:160px;object-fit:contain;pointer-events:none"/>`:''}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button type="button" class="btn btn-g btn-sm" onclick="clearFirma()">🗑 Limpiar firma</button>
+        <span style="font-size:11px;color:var(--text3);align-self:center">La firma aparecerá en tus informes PDF</span>
+      </div>
+    </div>
     <button class="btn btn-p" onclick="saveProfile()">✓ Guardar perfil</button>
   </div>
 
@@ -547,17 +564,69 @@ function settingsHTML(){
   </div>
   </div>`;
 }
-function bindSettings(){}
+let firmaDrawing=false,firmaHasContent=false,firmaCtx=null;
+function bindSettings(){
+  const canvas=document.getElementById('firma-canvas');
+  if(!canvas)return;
+  firmaCtx=canvas.getContext('2d');
+  firmaCtx.strokeStyle='#1a2340';firmaCtx.lineWidth=2.2;firmaCtx.lineCap='round';firmaCtx.lineJoin='round';
+  firmaHasContent=false;
+  const preview=document.getElementById('firma-preview');
+  const pos=e=>{
+    const r=canvas.getBoundingClientRect();
+    const cx=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    const cy=(e.touches?e.touches[0].clientY:e.clientY)-r.top;
+    return {x:cx*(canvas.width/r.width),y:cy*(canvas.height/r.height)};
+  };
+  const start=e=>{e.preventDefault();if(preview)preview.style.display='none';firmaDrawing=true;const p=pos(e);firmaCtx.beginPath();firmaCtx.moveTo(p.x,p.y);};
+  const move=e=>{if(!firmaDrawing)return;e.preventDefault();const p=pos(e);firmaCtx.lineTo(p.x,p.y);firmaCtx.stroke();firmaHasContent=true;};
+  const end=()=>{firmaDrawing=false;};
+  canvas.onmousedown=start;canvas.onmousemove=move;canvas.onmouseup=end;canvas.onmouseleave=end;
+  canvas.ontouchstart=start;canvas.ontouchmove=move;canvas.ontouchend=end;
+}
+function clearFirma(){
+  const canvas=document.getElementById('firma-canvas');
+  if(canvas&&firmaCtx)firmaCtx.clearRect(0,0,canvas.width,canvas.height);
+  const preview=document.getElementById('firma-preview');if(preview)preview.style.display='none';
+  firmaHasContent=false;
+  const prof=db.doctor()||{};prof.firma='';db.saveDoctor(prof);
+}
+function selectGenero(val){
+  document.querySelectorAll('#genero-group .radio-opt').forEach(b=>b.classList.toggle('on',b.dataset.g===val));
+  window._selGenero=val;
+}
 function saveProfile(){
   const prof=db.doctor()||{};
   prof.name=document.getElementById('prof-name').value.trim()||prof.name;
   prof.matricula=document.getElementById('prof-matricula').value.trim();
   prof.especialidad=document.getElementById('prof-especialidad').value.trim();
   prof.institucion=document.getElementById('prof-institucion').value.trim();
+  const selG=document.querySelector('#genero-group .radio-opt.on');
+  if(selG)prof.genero=selG.dataset.g;
+  // Guardar firma si se dibujó algo nuevo
+  if(firmaHasContent){
+    const canvas=document.getElementById('firma-canvas');
+    if(canvas)prof.firma=canvas.toDataURL('image/png');
+  }
   db.saveDoctor(prof);
   currentDoctor=prof;
   render();
   toast('Perfil guardado. Aparecerá en tus informes.','ok');
+}
+// Saludo y especialidad según género del perfil
+function saludo(){
+  const g=currentDoctor?.genero;
+  if(g==='F')return 'Bienvenida';
+  if(g==='M')return 'Bienvenido';
+  return 'Bienvenido/a';
+}
+function tratamiento(){
+  const g=currentDoctor?.genero;
+  const esp=currentDoctor?.especialidad;
+  if(esp)return esp; // si puso especialidad, la usamos tal cual
+  if(g==='F')return 'Ginecóloga';
+  if(g==='M')return 'Ginecólogo';
+  return 'Profesional';
 }
 function saveApiKey(){
   const key=document.getElementById('api-key-input')?.value?.trim();
@@ -591,7 +660,7 @@ function dashboardHTML(){
   return`<div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:26px">
     <div>
-      <div style="font-family:Lora,serif;font-size:24px">Bienvenido/a, ${currentDoctor?.name?.split(' ').slice(-1)[0]||''} 👋</div>
+      <div style="font-family:Lora,serif;font-size:24px">${saludo()}, ${currentDoctor?.name?.split(' ').slice(-1)[0]||''} 👋</div>
       <div style="font-size:13px;color:var(--text3);margin-top:2px">${dateStr}</div>
     </div>
     <button class="btn btn-p" onclick="navigate('patients')">＋ Nueva paciente</button>
@@ -710,6 +779,12 @@ function openPatientModal(id=null){
         <div class="fg"><label class="lbl">Edad</label><input id="pm-edad" type="number" value="${v('edad')}" placeholder="32"/></div>
         <div class="fg"><label class="lbl">Fecha de consulta</label><input id="pm-fecha" type="date" value="${v('fecha')||new Date().toISOString().slice(0,10)}"/></div>
       </div>
+      <div class="fg"><label class="lbl">Identidad de género</label>
+        <div style="display:flex;flex-wrap:wrap;gap:7px" id="pm-genero-group">
+          ${[['F','Femenino'],['M','Masculino'],['N','No binario'],['','Sin especificar']].map(([val,lbl])=>`
+          <button type="button" class="radio-opt${(v('genero')||'')===val?' on':''}" onclick="document.querySelectorAll('#pm-genero-group .radio-opt').forEach(b=>b.classList.remove('on'));this.classList.add('on')" data-g="${val}">${lbl}</button>`).join('')}
+        </div>
+      </div>
       <div class="grid2">
         <div class="fg"><label class="lbl">PAP</label>
           <select id="pm-pap"><option value="">Sin datos</option>${['Normal','ASCUS','LSIL','HSIL','ASC-H','AGC','Carcinoma'].map(o=>`<option${v('pap')===o?' selected':''}>${o}</option>`).join('')}</select></div>
@@ -728,10 +803,12 @@ function closePatientModal(){document.getElementById('patient-modal').innerHTML=
 function savePatient(editId){
   const nombre=document.getElementById('pm-nombre').value.trim();
   if(!nombre){toast('El nombre es requerido.','err');return;}
+  const selG=document.querySelector('#pm-genero-group .radio-opt.on');
   const p={id:editId||uuid(),createdAt:editId?(db.patients().find(x=>x.id===editId)?.createdAt||new Date().toISOString()):new Date().toISOString(),
     nombre,codigo:document.getElementById('pm-codigo').value,edad:document.getElementById('pm-edad').value,
     fecha:document.getElementById('pm-fecha').value,pap:document.getElementById('pm-pap').value,
     hpv:document.getElementById('pm-hpv').value,motivo:document.getElementById('pm-motivo').value,
+    genero:selG?selG.dataset.g:'',
     antecedentes:document.getElementById('pm-ant').value};
   const all=db.patients();
   if(editId)db.savePatients(all.map(x=>x.id===editId?p:x));else db.savePatients([...all,p]);
@@ -1707,9 +1784,13 @@ function generatePDF(studyId){
     doc.setFillColor(26,34,50);doc.rect(M,y,W-M*2,.3,'F');y+=8;
     // Datos del profesional (perfil)
     const prof=db.doctor()||{};
+    // Firma caligráfica si existe
+    if(prof.firma){
+      try{doc.addImage(prof.firma,'PNG',M,y,45,16);}catch(e){}
+    }
     doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(80,94,122);
-    doc.text('Firma y sello profesional:',M,y);
-    doc.setDrawColor(80,94,122);doc.setLineWidth(.2);doc.line(M+55,y,M+130,y);y+=10;
+    doc.text('Firma y sello profesional:',M+55,y+10);
+    doc.setDrawColor(80,94,122);doc.setLineWidth(.2);doc.line(M+110,y+10,W-M,y+10);y+=22;
     if(prof.name||prof.matricula){
       doc.setTextColor(40,50,70);doc.setFont('helvetica','bold');doc.setFontSize(10);
       if(prof.name){doc.text(prof.name,M,y);y+=5;}
