@@ -442,6 +442,14 @@ function renderPage(){
   else if(currentPage==='patients'){el.innerHTML=patientsHTML();bindPatients();}
   else if(currentPage==='studies'){el.innerHTML=studiesHTML();bindStudies();}
   else if(currentPage==='settings'){el.innerHTML=settingsHTML();bindSettings();}
+  updateSidebarActive();
+}
+// Actualiza qué ítem del menú está resaltado, sin re-renderizar todo el sidebar
+function updateSidebarActive(){
+  const activeNav=(currentPage==='studies'&&selectedPatient)?'patients':currentPage;
+  document.querySelectorAll('.sidebar .nav-item[data-nav]').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.nav===activeNav);
+  });
 }
 function navigate(page,patient=null){currentPage=page;selectedPatient=patient;renderPage();}
 
@@ -551,7 +559,7 @@ function sidebarHTML(){
     <span class="lbl-hide" style="font-family:Lora,serif;font-size:17px;color:var(--text)">ColpoAId</span>
   </div>
   <nav style="flex:1;padding:12px 10px;overflow-y:auto">
-    ${nav.map(([id,ic,lb])=>`<button class="nav-item${activeNav===id?' active':''}" onclick="navigate('${id}')">${ic} <span class="lbl-hide">${lb}</span></button>`).join('')}
+    ${nav.map(([id,ic,lb])=>`<button class="nav-item${activeNav===id?' active':''}" data-nav="${id}" onclick="navigate('${id}')">${ic} <span class="lbl-hide">${lb}</span></button>`).join('')}
   </nav>
   <div style="padding:12px 10px;border-top:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;margin-bottom:6px">
@@ -992,9 +1000,10 @@ function patientHistoryHTML(patient){
         ${s.aiSummary?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic">🤖 ${s.aiSummary}</div>`:''}
         ${s.notas&&!s.aiSummary?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.notas}</div>`:''}
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
+      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
         <button class="btn btn-g btn-sm" onclick="viewStudy('${s.id}')">👁 Ver</button>
         <button class="btn btn-g btn-sm" onclick="openStudyModal('${s.id}')">✏️</button>
+        <button class="btn btn-ai btn-sm" onclick="openStudyModal('${s.id}',4)">🔬 Biopsia</button>
         <button class="btn btn-t btn-sm" onclick="generatePDF('${s.id}')">📄 PDF</button>
         <button class="btn btn-d btn-sm" onclick="deleteStudy('${s.id}')">🗑</button>
       </div>
@@ -1012,9 +1021,9 @@ function deleteStudy(id){
 // ═══════════════════════════════════════
 let studyFormData={},studyStep=0;
 
-function openStudyModal(id=null){
+function openStudyModal(id=null,gotoStep=0){
   const edit=id?db.studies().find(s=>s.id===id):null;
-  studyStep=0;
+  studyStep=gotoStep;
   studyFormData=edit?JSON.parse(JSON.stringify(edit)):{
     patientId:selectedPatient.id,date:new Date().toISOString().slice(0,10),
     images:[],annotations:[],clockMarks:[],biopsias:[],correlacion:'',
