@@ -95,7 +95,41 @@ tr:hover td{background:rgba(255,255,255,.02)}
 /* API KEY SETUP */
 .apikey-banner{background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(167,139,250,.08));border:1px solid rgba(167,139,250,.25);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:12px;margin-bottom:16px}
 
-@media(max-width:768px){.sidebar{width:60px}.sidebar .lbl-hide{display:none}.main{margin-left:60px;padding:16px}.grid4{grid-template-columns:1fr 1fr}.grid3{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+@media(max-width:768px){
+  /* Sidebar pasa a barra inferior fija (más cómoda en celular) */
+  .sidebar{width:100%;height:auto;top:auto;bottom:0;left:0;right:0;flex-direction:row;border-right:none;border-top:1px solid var(--border);z-index:200}
+  .sidebar>div:first-child{display:none} /* ocultar logo arriba en mobile */
+  .sidebar nav{display:flex;flex-direction:row;justify-content:space-around;padding:6px 4px;flex:1}
+  .sidebar .lbl-hide{display:none}
+  .sidebar>div:last-child{display:none} /* ocultar perfil/salir abajo en mobile */
+  .nav-item{flex-direction:column;gap:2px;font-size:20px;padding:6px 8px;margin-bottom:0}
+  .nav-item.active{box-shadow:none;background:var(--blueg)}
+  .main{margin-left:0;margin-bottom:64px;padding:16px 14px}
+  /* Grids a una columna */
+  .grid4{grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{grid-template-columns:1fr;gap:10px}
+  .grid2{grid-template-columns:1fr;gap:10px}
+  /* Tablas: scroll horizontal suave */
+  table{font-size:12px}
+  th,td{padding:8px 6px!important}
+  /* Cards más compactas */
+  .card{padding:14px}
+  /* Botones de acción más tocables */
+  .btn-sm{padding:7px 10px;font-size:12px}
+  /* Modales ocupan casi toda la pantalla en mobile */
+  .modal-bg{padding:0;align-items:flex-end}
+  .modal,.modal-wide{max-width:100%!important;width:100%!important;margin:0!important;border-radius:16px 16px 0 0!important;max-height:94vh!important}
+  /* Wizard de pasos: scroll horizontal */
+  .step-num{width:22px;height:22px;font-size:10px}
+}
+@media(max-width:480px){
+  .main{padding:12px 10px}
+  .grid4{grid-template-columns:1fr 1fr}
+  table{font-size:11px}
+  /* En celular, ocultar columnas menos críticas de la tabla de pacientes */
+  .col-hide-mobile{display:none}
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -503,13 +537,16 @@ function bindLogin(){
 // ═══════════════════════════════════════
 function sidebarHTML(){
   const nav=[['dashboard','🏠','Dashboard'],['patients','👥','Pacientes'],['studies','📋','Estudios'],['settings','⚙️','Configuración']];
+  // Determinar qué item resaltar (si estamos viendo el detalle de un paciente,
+  // resaltar "Pacientes" en vez de "Estudios" para no confundir)
+  const activeNav=(currentPage==='studies'&&selectedPatient)?'patients':currentPage;
   return`<aside class="sidebar">
   <div style="padding:20px 18px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
     <div style="width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🔬</div>
     <span class="lbl-hide" style="font-family:Lora,serif;font-size:17px;color:var(--text)">ColpoAId</span>
   </div>
   <nav style="flex:1;padding:12px 10px;overflow-y:auto">
-    ${nav.map(([id,ic,lb])=>`<button class="nav-item${currentPage===id?' active':''}" onclick="navigate('${id}')">${ic} <span class="lbl-hide">${lb}</span></button>`).join('')}
+    ${nav.map(([id,ic,lb])=>`<button class="nav-item${activeNav===id?' active':''}" onclick="navigate('${id}')">${ic} <span class="lbl-hide">${lb}</span></button>`).join('')}
   </nav>
   <div style="padding:12px 10px;border-top:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;margin-bottom:6px">
@@ -751,7 +788,7 @@ function dashboardHTML(){
 // PATIENTS (igual que antes)
 // ═══════════════════════════════════════
 function patientsHTML(){
-  const patients=db.patients();
+  const patients=[...db.patients()].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}));
   return`<div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px">
     <div><div style="font-family:Lora,serif;font-size:22px">Pacientes</div>
@@ -771,14 +808,15 @@ function renderPatientsTable(patients){
     <div style="font-weight:600;font-size:15px;color:var(--text2);margin-bottom:6px">Sin pacientes aún</div>
     <button class="btn btn-p" onclick="openPatientModal()" style="margin-top:8px">＋ Agregar paciente</button></div>`;
   return`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table>
-    <thead><tr><th>Paciente</th><th>Edad</th><th>Fecha</th><th>PAP</th><th>HPV</th><th>Motivo</th><th>Acciones</th></tr></thead>
+    <thead><tr><th>Paciente</th><th class="col-hide-mobile">Edad</th><th class="col-hide-mobile">Fecha</th><th>PAP</th><th class="col-hide-mobile">HPV</th><th class="col-hide-mobile">Motivo</th><th>Acciones</th></tr></thead>
     <tbody>${patients.map(p=>`<tr>
       <td style="color:var(--text);font-weight:600">${p.nombre}${p.codigo?`<div style="font-size:11px;color:var(--text3);font-weight:400">${p.codigo}</div>`:''}</td>
-      <td>${p.edad?p.edad+' a.':'—'}</td><td>${p.fecha||'—'}</td>
+      <td class="col-hide-mobile">${p.edad?p.edad+' a.':'—'}</td><td class="col-hide-mobile">${p.fecha||'—'}</td>
       <td>${p.pap?`<span class="badge b-${papColor(p.pap)}">${p.pap}</span>`:'—'}</td>
-      <td>${p.hpv?`<span class="badge b-${p.hpv==='Negativo'?'ok':'danger'}">${p.hpv}</span>`:'—'}</td>
-      <td><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.motivo||'—'}</div></td>
+      <td class="col-hide-mobile">${p.hpv?`<span class="badge b-${p.hpv==='Negativo'?'ok':'danger'}">${p.hpv}</span>`:'—'}</td>
+      <td class="col-hide-mobile"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.motivo||'—'}</div></td>
       <td><div style="display:flex;gap:4px">
+        <button class="btn btn-p btn-sm" onclick="nuevoEstudioPaciente('${p.id}')">＋ Estudio</button>
         <button class="btn btn-g btn-sm" onclick="viewPatientHistory('${p.id}')">👁 Ver</button>
         <button class="btn btn-g btn-sm" onclick="openPatientModal('${p.id}')">✏️</button>
         <button class="btn btn-d btn-sm" onclick="deletePatient('${p.id}')">🗑</button>
@@ -786,11 +824,13 @@ function renderPatientsTable(patients){
 }
 function filterPatients(){
   const q=document.getElementById('pat-search')?.value.toLowerCase()||'';
-  const filtered=db.patients().filter(p=>(p.nombre||'').toLowerCase().includes(q)||(p.codigo||'').toLowerCase().includes(q));
+  const filtered=db.patients().filter(p=>(p.nombre||'').toLowerCase().includes(q)||(p.codigo||'').toLowerCase().includes(q))
+    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}));
   document.getElementById('patients-list').innerHTML=renderPatientsTable(filtered);
 }
 function bindPatients(){}
 function viewPatientHistory(id){selectedPatient=db.patients().find(x=>x.id===id);currentPage='studies';renderPage();}
+function nuevoEstudioPaciente(id){selectedPatient=db.patients().find(x=>x.id===id);currentPage='studies';renderPage();setTimeout(()=>openStudyModal(),100);}
 function deletePatient(id){
   if(!confirm('¿Eliminar paciente y sus estudios?'))return;
   const studiesToDelete=db.studies().filter(s=>s.patientId===id);
@@ -861,7 +901,7 @@ function savePatient(editId){
 // ═══════════════════════════════════════
 function studiesHTML(){
   if(selectedPatient)return patientHistoryHTML(selectedPatient);
-  const patients=db.patients();
+  const patients=[...db.patients()].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}));
   if(!patients.length)return`<div>
     <div style="font-family:Lora,serif;font-size:22px;margin-bottom:22px">Estudios</div>
     <div class="card" style="text-align:center;padding:50px 20px">
@@ -903,7 +943,8 @@ function renderPatientCards(patients){
   }).join('');
 }
 function filterStudyPatients(q){
-  const filtered=db.patients().filter(p=>(p.nombre||'').toLowerCase().includes(q.toLowerCase())||(p.codigo||'').toLowerCase().includes(q.toLowerCase()));
+  const filtered=db.patients().filter(p=>(p.nombre||'').toLowerCase().includes(q.toLowerCase())||(p.codigo||'').toLowerCase().includes(q.toLowerCase()))
+    .sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'','es',{sensitivity:'base'}));
   document.getElementById('study-patients-list').innerHTML=renderPatientCards(filtered);
 }
 function selectStudyPatient(id){selectedPatient=db.patients().find(p=>p.id===id);renderPage();}
