@@ -365,10 +365,15 @@ REGLAS FUNDAMENTALES (lenguaje DESCRIPTIVO, no diagnóstico):
 - Podés SUGERIR con prudencia áreas a considerar evaluar, pero NUNCA indicar conducta médica (no decir "hacer biopsia", "derivar", "tratar").
 - Usá lenguaje como "se observa", "se aprecia", "se identifica", "área a considerar según criterio del profesional".
 
-INSTRUCCIONES PARA LAS ZONAS:
+INSTRUCCIONES PARA LAS ZONAS (ubicación precisa):
 - Marcá las áreas con hallazgos visibles, usando coordenadas en PORCENTAJE (0-100).
-- El centro de la imagen cervical suele estar entre x:30-70, y:25-75.
-- Marcá SOLO zonas donde realmente observes hallazgos.
+- IMPORTANTE sobre coordenadas: x=0 es el borde IZQUIERDO, x=100 el DERECHO. y=0 es ARRIBA, y=100 ABAJO.
+- Mirá CON ATENCIÓN dónde está cada hallazgo en la imagen antes de asignar coordenadas.
+- El cuello uterino suele ocupar la zona central de la imagen. Las zonas oscuras
+  de los bordes (esquinas negras del espéculo/lente) NO son hallazgos — NO las marques.
+- Ubicá cada marca EXACTAMENTE sobre el hallazgo que describís, no en zonas vecinas.
+- Verificá: si describís algo "en el centro", x e y deben rondar 45-55.
+- Marcá SOLO zonas donde realmente observes hallazgos sobre tejido cervical.
 - Si no hay hallazgos, zonas=[]. Máximo 6 zonas.
 - Si la imagen no es colposcópica o tiene mala calidad, zonas=[].
 
@@ -1029,23 +1034,27 @@ function renderStudyModal(editId){
       <div style="font-size:12px;color:var(--text3);margin-top:2px">Paciente: ${selectedPatient.nombre}</div></div>
       <button onclick="closeStudyModal()" style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:18px">✕</button>
     </div>
-    <div style="padding:16px 24px 0;display:flex;align-items:center;gap:0;flex-wrap:wrap">
-      ${['Datos','Imágenes + IA','Hallazgos','Diagnóstico','Biopsias'].map((s,i)=>`
-        <div style="display:flex;align-items:center">
-          <div style="display:flex;align-items:center;gap:7px;cursor:pointer" onclick="goStudyStep(${i})">
-            <div class="step-num" style="border-color:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'var(--border2)'};background:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'transparent'};color:${i<=studyStep?'#fff':'var(--text3)'}">
-              ${i<studyStep?'✓':i+1}
-            </div>
-            <span style="font-size:12px;font-weight:500;color:${i===studyStep?'var(--blue)':'var(--text3)'}">${s}</span>
-          </div>
-          ${i<4?`<div style="width:20px;height:1px;background:var(--border2);margin:0 6px"></div>`:''}
-        </div>`).join('')}
+    <div style="padding:16px 24px 0;display:flex;align-items:center;gap:0;flex-wrap:wrap" id="study-step-indicator">
+      ${renderStepIndicator()}
     </div>
     <div style="padding:18px 24px 24px" id="study-step-content">
       ${renderStudyStep(editId)}
     </div>
   </div></div>`;
   bindStudyStep();
+}
+
+function renderStepIndicator(){
+  return ['Datos','Imágenes + IA','Hallazgos','Diagnóstico','Biopsias'].map((s,i)=>`
+    <div style="display:flex;align-items:center">
+      <div style="display:flex;align-items:center;gap:7px;cursor:pointer" onclick="goStudyStep(${i})">
+        <div class="step-num" style="border-color:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'var(--border2)'};background:${i<studyStep?'var(--ok)':i===studyStep?'var(--blue)':'transparent'};color:${i<=studyStep?'#fff':'var(--text3)'}">
+          ${i<studyStep?'✓':i+1}
+        </div>
+        <span style="font-size:12px;font-weight:500;color:${i===studyStep?'var(--blue)':'var(--text3)'}">${s}</span>
+      </div>
+      ${i<4?`<div style="width:20px;height:1px;background:var(--border2);margin:0 6px"></div>`:''}
+    </div>`).join('');
 }
 
 function renderStudyStep(editId){
@@ -1463,9 +1472,15 @@ function stepNav(editId){
     `<button class="btn btn-p" onclick="saveStudy('${editId||''}')">✓ Guardar estudio</button>`}
   </div>`;
 }
-function goStudyStep(i){captureStepData();studyStep=i;document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
-function nextStudyStep(){captureStepData();studyStep=Math.min(4,studyStep+1);document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
-function prevStudyStep(){captureStepData();studyStep=Math.max(0,studyStep-1);document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep();}
+function refreshStudyStep(){
+  const ind=document.getElementById('study-step-indicator');
+  if(ind)ind.innerHTML=renderStepIndicator();
+  document.getElementById('study-step-content').innerHTML=renderStudyStep(null);
+  bindStudyStep();
+}
+function goStudyStep(i){captureStepData();studyStep=i;refreshStudyStep();}
+function nextStudyStep(){captureStepData();studyStep=Math.min(4,studyStep+1);refreshStudyStep();}
+function prevStudyStep(){captureStepData();studyStep=Math.max(0,studyStep-1);refreshStudyStep();}
 function captureStepData(){
   if(studyStep===0){const d=document.getElementById('sf-date');if(d)studyFormData.date=d.value;const m=document.getElementById('sf-motivo');if(m)studyFormData.motivo=m.value;}
   if(studyStep===3){const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;}
