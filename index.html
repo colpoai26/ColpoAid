@@ -258,11 +258,34 @@ const diagColor=d=>{
 
 let currentDoctor=null,currentPage='dashboard',selectedPatient=null;
 
-// ═══════════════════════════════════════
-// MOTOR IA ColpoAId
-// ═══════════════════════════════════════
-async function analyzeImageWithAI(base64Image,patientContext=''){
-  const prompt=`Sos un asistente de DOCUMENTACIÓN colposcópica. Tu rol es DESCRIBIR objetivamente lo que se observa en la imagen, como lo dictaría un médico al registrar sus hallazgos. NO emitís diagnósticos ni grados de lesión. La interpretación diagnóstica corresponde EXCLUSIVAMENTE al médico.
+// ═══════════════════════════════════════════════════════════════
+// ███  MOTOR IA ColpoAId — MÓDULO AISLADO  ███
+// ═══════════════════════════════════════════════════════════════
+// Toda la lógica de IA vive acá dentro, separada del resto de la app.
+// Para cambiar de motor (modelo propio, otro proveedor) en el futuro,
+// solo se modifica este módulo. El resto de la app NO se toca.
+//
+// Puerta de entrada única:  MotorIA.analizar(imagen, contexto)
+//   → devuelve un objeto con los hallazgos descriptivos
+//
+// Partes del módulo:
+//   1. config       → ajustes del motor (endpoint, versión)
+//   2. construirPrompt → arma las instrucciones para la IA
+//   3. llamar       → se comunica con el motor (hoy: proxy serverless)
+//   4. procesar     → interpreta y limpia la respuesta
+//   5. analizar     → orquesta todo (la función pública)
+// ═══════════════════════════════════════════════════════════════
+const MotorIA = {
+
+  // ── 1. Configuración del motor ──────────────────────────────
+  config:{
+    endpoint:'/api/analyze',   // proxy seguro en Vercel (la API key vive ahí)
+    version:'colpoaid-descriptivo-v1',
+  },
+
+  // ── 2. Construcción del prompt (instrucciones para la IA) ────
+  construirPrompt(patientContext=''){
+    return `Sos un asistente de DOCUMENTACIÓN colposcópica. Tu rol es DESCRIBIR objetivamente lo que se observa en la imagen, como lo dictaría un médico al registrar sus hallazgos. NO emitís diagnósticos ni grados de lesión. La interpretación diagnóstica corresponde EXCLUSIVAMENTE al médico.
 
 Contexto de la paciente: ${patientContext||'Sin datos adicionales'}
 
@@ -316,36 +339,53 @@ INSTRUCCIONES PARA LAS ZONAS:
 - Si la imagen no es colposcópica o tiene mala calidad, zonas=[].
 
 IMPORTANTE: Esta es una herramienta de DOCUMENTACIÓN y APOYO descriptivo. No reemplaza la valoración clínica. Toda interpretación diagnóstica y decisión corresponde exclusivamente al médico tratante.`;
+  },
 
-  // Llamar a la función serverless (proxy seguro) en vez de a la API directamente
-  const response=await fetch('/api/analyze',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({image:base64Image,prompt})
-  });
-
-  if(!response.ok){
-    const err=await response.json().catch(()=>({}));
-    throw new Error(err?.error||`Error ${response.status}`);
-  }
-
-  const data=await response.json();
-  const text=data.text||'';
-  let clean=text.replace(/```json|```/g,'').trim();
-  // Intentar parsear; si viene incompleto, intentar recuperar el JSON
-  try{
-    return JSON.parse(clean);
-  }catch(e){
-    // Recuperación: extraer desde la primera { hasta la última }
-    const first=clean.indexOf('{');
-    const last=clean.lastIndexOf('}');
-    if(first>=0&&last>first){
-      let candidate=clean.slice(first,last+1);
-      try{return JSON.parse(candidate);}catch(e2){}
+  // ── 3. Llamada al motor (hoy: proxy serverless en Vercel) ────
+  // El día de mañana, para usar un modelo propio, solo se cambia esta función.
+  async llamar(base64Image,prompt){
+    const response=await fetch(this.config.endpoint,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({image:base64Image,prompt})
+    });
+    if(!response.ok){
+      const err=await response.json().catch(()=>({}));
+      throw new Error(err?.error||`Error ${response.status}`);
     }
-    // Si no se pudo recuperar, error claro
-    throw new Error('La respuesta de la IA llegó incompleta. Probá analizar de nuevo.');
-  }
+    const data=await response.json();
+    return data.text||'';
+  },
+
+  // ── 4. Procesamiento de la respuesta (limpieza + parseo) ─────
+  procesar(text){
+    let clean=text.replace(/```json|```/g,'').trim();
+    try{
+      return JSON.parse(clean);
+    }catch(e){
+      // Recuperación si el JSON viene incompleto
+      const first=clean.indexOf('{');
+      const last=clean.lastIndexOf('}');
+      if(first>=0&&last>first){
+        try{return JSON.parse(clean.slice(first,last+1));}catch(e2){}
+      }
+      throw new Error('La respuesta de la IA llegó incompleta. Probá analizar de nuevo.');
+    }
+  },
+
+  // ── 5. PUERTA DE ENTRADA PÚBLICA ────────────────────────────
+  // Esto es lo único que el resto de la app necesita llamar.
+  async analizar(base64Image,patientContext=''){
+    const prompt=this.construirPrompt(patientContext);
+    const respuestaCruda=await this.llamar(base64Image,prompt);
+    return this.procesar(respuestaCruda);
+  },
+};
+
+// Puente de compatibilidad: el resto de la app sigue llamando a esta función,
+// pero internamente usa el módulo aislado. Así no hay que cambiar nada más.
+async function analyzeImageWithAI(base64Image,patientContext=''){
+  return MotorIA.analizar(base64Image,patientContext);
 }
 
 // ═══════════════════════════════════════
