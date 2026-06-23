@@ -828,8 +828,9 @@ function renderPatientsTable(patients){
       <td>${p.pap?`<span class="badge b-${papColor(p.pap)}">${p.pap}</span>`:'—'}</td>
       <td class="col-hide-mobile">${p.hpv?`<span class="badge b-${p.hpv==='Negativo'?'ok':'danger'}">${p.hpv}</span>`:'—'}</td>
       <td class="col-hide-mobile"><div style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.motivo||'—'}</div></td>
-      <td><div style="display:flex;gap:4px">
+      <td><div style="display:flex;gap:4px;flex-wrap:wrap">
         <button class="btn btn-p btn-sm" onclick="nuevoEstudioPaciente('${p.id}')">＋ Estudio</button>
+        <button class="btn btn-ai btn-sm" onclick="biopsiaDirecta('${p.id}')">🔬 Biopsia</button>
         <button class="btn btn-g btn-sm" onclick="viewPatientHistory('${p.id}')">👁 Ver</button>
         <button class="btn btn-g btn-sm" onclick="openPatientModal('${p.id}')">✏️</button>
         <button class="btn btn-d btn-sm" onclick="deletePatient('${p.id}')">🗑</button>
@@ -844,6 +845,16 @@ function filterPatients(){
 function bindPatients(){}
 function viewPatientHistory(id){selectedPatient=db.patients().find(x=>x.id===id);currentPage='studies';renderPage();}
 function nuevoEstudioPaciente(id){selectedPatient=db.patients().find(x=>x.id===id);currentPage='studies';renderPage();setTimeout(()=>openStudyModal(),100);}
+function biopsiaDirecta(id){
+  selectedPatient=db.patients().find(x=>x.id===id);
+  currentPage='studies';renderPage();
+  // Buscar el estudio más reciente del paciente; si hay, abrir en biopsias; si no, crear uno nuevo
+  const estudios=db.studiesOf(id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  setTimeout(()=>{
+    if(estudios.length)openStudyModal(estudios[0].id,4);
+    else openStudyModal(null,4);
+  },100);
+}
 function deletePatient(id){
   if(!confirm('¿Eliminar paciente y sus estudios?'))return;
   const studiesToDelete=db.studies().filter(s=>s.patientId===id);
@@ -1455,7 +1466,18 @@ async function runAiAnalysis(){
 
   try{
     const patientCtx=`PAP: ${selectedPatient.pap||'N/D'}, HPV: ${selectedPatient.hpv||'N/D'}, Edad: ${selectedPatient.edad||'N/D'} años, Motivo: ${selectedPatient.motivo||'N/D'}`;
-    const result=await analyzeImageWithAI(studyFormData.images[0],patientCtx);
+    // Si la imagen es una URL de la nube, convertirla a base64 primero
+    let imagen=studyFormData.images[0];
+    if(typeof imagen==='string'&&imagen.startsWith('http')){
+      try{
+        const resp=await fetch(imagen);
+        const blob=await resp.blob();
+        imagen=await new Promise((res,rej)=>{
+          const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(blob);
+        });
+      }catch(e){throw new Error('No se pudo cargar la imagen de la nube. Probá de nuevo.');}
+    }
+    const result=await analyzeImageWithAI(imagen,patientCtx);
     if(!result)return;
 
     // Apply results to form (solo descriptivo, NO diagnóstico ni conducta)
