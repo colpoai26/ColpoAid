@@ -1244,6 +1244,21 @@ function renderBiopsiaRow(b,i){
     <div style="margin-top:10px"><label class="lbl">Observaciones</label>
       <input type="text" value="${b.obs||''}" placeholder="Notas adicionales sobre esta biopsia..." onchange="updateBiopsia(${i},'obs',this.value)"/>
     </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <label class="lbl">📄 Foto del informe de Anatomía Patológica</label>
+      ${b.fotoAP?`
+        <div style="display:flex;align-items:center;gap:10px">
+          <img src="${b.fotoAP}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--border2);cursor:pointer" onclick="window.open('${b.fotoAP}','_blank')"/>
+          <div style="flex:1">
+            <div style="font-size:12px;color:var(--ok)">✓ Informe AP cargado</div>
+            <button class="btn btn-d btn-sm" onclick="updateBiopsia(${i},'fotoAP','');document.getElementById('study-step-content').innerHTML=renderStudyStep(null);bindStudyStep()" style="margin-top:4px">Quitar</button>
+          </div>
+        </div>`:`
+        <label style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:2px dashed var(--border2);border-radius:8px;cursor:pointer;color:var(--text3);font-size:12px">
+          📤 Subir foto del informe AP
+          <input type="file" accept="image/*" style="display:none" onchange="handleAPPhoto(${i},this.files[0])"/>
+        </label>`}
+    </div>
   </div>`;
 }
 
@@ -1263,6 +1278,16 @@ function removeBiopsia(i){
 function updateBiopsia(i,key,val){
   if(!studyFormData.biopsias)studyFormData.biopsias=[];
   studyFormData.biopsias[i][key]=val;
+}
+function handleAPPhoto(i,file){
+  if(!file||!file.type.startsWith('image/'))return;
+  const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  resizeImage(file,isMobile?900:1100,0.78,(dataUrl)=>{
+    studyFormData.biopsias[i].fotoAP=dataUrl;
+    document.getElementById('study-step-content').innerHTML=renderStudyStep(null);
+    bindStudyStep();
+    toast('Foto del informe AP cargada.','ok');
+  });
 }
 
 function renderAiButton(){
