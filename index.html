@@ -522,14 +522,14 @@ function bindLogin(){
           return;
         }
         cloudUser=data.user;
-        currentDoctor={name,email};db.saveDoctor(currentDoctor);
+        currentDoctor={...(db.doctor()||{}),name,email};db.saveDoctor(currentDoctor);
         await db.loadFromCloud();subscribeRealtime();render();
       }else{
         const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
         if(error)throw error;
         cloudUser=data.user;
         const name=data.user.user_metadata?.name||email.split('@')[0];
-        currentDoctor={name,email};db.saveDoctor(currentDoctor);
+        currentDoctor={...(db.doctor()||{}),name,email};db.saveDoctor(currentDoctor);
         await db.loadFromCloud();subscribeRealtime();render();
       }
     }catch(e){
@@ -853,6 +853,12 @@ function biopsiaDirecta(id){
   setTimeout(()=>{
     if(estudios.length)openStudyModal(estudios[0].id,4);
     else openStudyModal(null,4);
+    // Si no hay biopsias cargadas, agregar una vacía para mostrar los campos enseguida
+    setTimeout(()=>{
+      if(!studyFormData.biopsias||studyFormData.biopsias.length===0){
+        addBiopsia();
+      }
+    },150);
   },100);
 }
 function deletePatient(id){
@@ -1969,7 +1975,7 @@ window.onload=async()=>{
     if(data.session){
       cloudUser=data.session.user;
       const name=cloudUser.user_metadata?.name||cloudUser.email.split('@')[0];
-      currentDoctor={name,email:cloudUser.email};
+      currentDoctor={...(db.doctor()||{}),name,email:cloudUser.email};
       db.saveDoctor(currentDoctor);
       await db.loadFromCloud();
       subscribeRealtime();
