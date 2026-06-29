@@ -254,12 +254,24 @@ const db={
           }
           mapped.push(study);
         }
-        // Conservar biopsias locales si existen
+        // Conservar biopsias locales si existen + regenerar URLs de fotos AP
         const local=db.studies();
-        mapped.forEach(m=>{
+        for(const m of mapped){
           const loc=local.find(l=>l.id===m.id);
-          if(loc){m.biopsias=loc.biopsias||loc.biopsias||[];if(!m.images.length&&loc.images)m.images=loc.images;}
-        });
+          if(loc){
+            m.biopsias=loc.biopsias||[];
+            if(!m.images.length&&loc.images)m.images=loc.images;
+            // Regenerar URLs firmadas de las fotos de AP (si tienen path en la nube)
+            for(const b of m.biopsias){
+              if(b.fotoAPPath){
+                try{
+                  const {data:signed}=await sb.storage.from('imagenes').createSignedUrl(b.fotoAPPath,3600);
+                  if(signed?.signedUrl)b.fotoAP=signed.signedUrl;
+                }catch(e){}
+              }
+            }
+          }
+        }
         db.set(db._key('cai_s'),mapped);
       }
     }catch(e){console.log('Load from cloud:',e.message);}
@@ -1712,6 +1724,8 @@ async function saveStudy(editId){
   captureStepData();const n=document.getElementById('sf-notas');if(n)studyFormData.notas=n.value;
   const studyId=editId||uuid();
   const imagesToUpload=[...(studyFormData.images||[])];
+  // Detectar fotos de AP (informes de biopsia) que sean base64 y haya que subir
+  const biopsiasConFoto=(studyFormData.biopsias||[]).map((b,i)=>({i,foto:b.fotoAP})).filter(x=>x.foto&&!x.foto.startsWith('http'));
 
   // Guardar el estudio YA. Para no congelar Safari, NO guardamos las imágenes
   // base64 pesadas en localStorage si hay nube — se suben al bucket aparte.
@@ -1720,14 +1734,54 @@ async function saveStudy(editId){
     // En localStorage guardamos liviano (sin base64 pesado); las fotos van al bucket
     s.images=[];
   }
+  // Las fotos de AP también las guardamos livianas en local si hay nube
+  if(cloudUser&&biopsiasConFoto.length&&s.biopsias){
+    s.biopsias=s.biopsias.map(b=>({...b,fotoAP:(b.fotoAP&&b.fotoAP.startsWith('http'))?b.fotoAP:''}));
+  }
   const all=db.studies();
   if(editId)db.saveStudies(all.map(x=>x.id===editId?s:x));else db.saveStudies([...all,s]);
   closeStudyModal();renderPage();
   toast(editId?'Estudio actualizado.':'Estudio guardado.','ok');
 
-  // Subir imágenes al bucket EN SEGUNDO PLANO (no bloquea, diferido)
+  // Subir imágenes colposcópicas al bucket EN SEGUNDO PLANO
   if(cloudUser&&imagesToUpload.length){
     setTimeout(()=>{uploadStudyImages(studyId,imagesToUpload);},300);
+  }
+  // Subir fotos de AP al bucket EN SEGUNDO PLANO
+  if(cloudUser&&biopsiasConFoto.length){
+    setTimeout(()=>{uploadAPPhotos(studyId,biopsiasConFoto);},400);
+  }
+}
+
+// Sube las fotos de informes AP al bucket por detrás
+async function uploadAPPhotos(studyId,biopsiasConFoto){
+  let hubo=false;
+  const paths={}; // índice de biopsia → path
+  for(const {i,foto} of biopsiasConFoto){
+    try{
+      const blob=base64ToBlob(foto);
+      const path=`${cloudUser.id}/${studyId}_ap_${i}_${Date.now()}.jpg`;
+      const {error}=await sb.storage.from('imagenes').upload(path,blob,{contentType:'image/jpeg',upsert:true});
+      if(error)throw error;
+      paths[i]=path;hubo=true;
+    }catch(e){console.log('Upload AP bg:',e.message);}
+  }
+  if(hubo){
+    const studies=db.studies();
+    const st=studies.find(x=>x.id===studyId);
+    if(st&&st.biopsias){
+      // Guardar paths y generar URLs firmadas para mostrar
+      for(const idx in paths){
+        st.biopsias[idx].fotoAPPath=paths[idx];
+        try{
+          const {data:signed}=await sb.storage.from('imagenes').createSignedUrl(paths[idx],3600);
+          if(signed?.signedUrl)st.biopsias[idx].fotoAP=signed.signedUrl;
+        }catch(e){}
+      }
+      db.saveStudies(studies);
+    }
+    toast('Informes AP sincronizados en la nube.','ok');
+    if(currentPage==='studies'&&selectedPatient)renderPage();
   }
 }
 
